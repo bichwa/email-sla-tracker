@@ -21,8 +21,8 @@ export const MetricsCards = ({ metrics, loading }) => {
             value: `${metrics?.avgResponseTime || 0}m`,
             icon: Clock,
             color: 'warning',
-            description: 'Today's average',
-    },
+            description: 'Today\'s average',
+        },
         {
             title: 'SLA Compliance',
             value: `${metrics?.slaCompliance || 100}%`,
