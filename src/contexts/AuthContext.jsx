@@ -16,45 +16,38 @@ export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null)
     const [employee, setEmployee] = useState(null)
     const [loading, setLoading] = useState(true)
-    const [msalAccount, setMsalAccount] = useState(null)
+    const [accessToken, setAccessToken] = useState(null)
 
     useEffect(() => {
-        // Initialize MSAL and check session
+        // Initialize authentication
         const initAuth = async () => {
             try {
                 await initializeMsal()
 
-                // Check for existing Supabase session
-                const { data: { session } } = await supabase.auth.getSession()
-
-                if (session) {
-                    setUser(session.user)
-                    await fetchEmployeeData(session.user.email)
+                // Check for stored session
+                const storedUser = localStorage.getItem('msalUser')
+                if (storedUser) {
+                    const userData = JSON.parse(storedUser)
+                    setUser(userData)
+                    await fetchEmployeeData(userData.email)
                 }
 
                 // Check for MSAL account
                 const accounts = msalInstance.getAllAccounts()
-                if (accounts.length > 0) {
-                    setMsalAccount(accounts[0])
-                }
-
-                // Listen for auth changes
-                const { data: { subscription } } = supabase.auth.onAuthStateChange(
-                    async (_event, session) => {
-                        setUser(session?.user ?? null)
-                        if (session?.user) {
-                            await fetchEmployeeData(session.user.email)
-                        } else {
-                            setEmployee(null)
-                        }
+                if (accounts.length > 0 && !storedUser) {
+                    // User has MSAL session but no stored user - fetch user info
+                    const account = accounts[0]
+                    const userInfo = {
+                        email: account.username,
+                        name: account.name,
+                        id: account.localAccountId,
                     }
-                )
+                    setUser(userInfo)
+                    localStorage.setItem('msalUser', JSON.stringify(userInfo))
+                    await fetchEmployeeData(account.username)
+                }
 
                 setLoading(false)
-
-                return () => {
-                    subscription.unsubscribe()
-                }
             } catch (error) {
                 console.error('Auth initialization error:', error)
                 setLoading(false)
@@ -87,9 +80,19 @@ export const AuthProvider = ({ children }) => {
         try {
             setLoading(true)
 
-            // Sign in with MSAL
+            // Sign in with MSAL popup
             const msalResponse = await msalInstance.loginPopup(loginRequest)
-            setMsalAccount(msalResponse.account)
+
+            // Get user info from account
+            const userInfo = {
+                email: msalResponse.account.username,
+                name: msalResponse.account.name,
+                id: msalResponse.account.localAccountId,
+            }
+
+            // Store user info
+            setUser(userInfo)
+            localStorage.setItem('msalUser', JSON.stringify(userInfo))
 
             // Get access token
             const tokenResponse = await msalInstance.acquireTokenSilent({
@@ -97,19 +100,15 @@ export const AuthProvider = ({ children }) => {
                 account: msalResponse.account,
             })
 
-            // Sign in to Supabase with Microsoft OAuth
-            const { data, error } = await supabase.auth.signInWithOAuth({
-                provider: 'azure',
-                options: {
-                    scopes: 'email profile openid',
-                },
-            })
+            setAccessToken(tokenResponse.accessToken)
 
-            if (error) throw error
+            // Fetch employee data from Supabase
+            await fetchEmployeeData(userInfo.email)
 
-            return data
+            return userInfo
         } catch (error) {
             console.error('Sign in error:', error)
+            setLoading(false)
             throw error
         } finally {
             setLoading(false)
@@ -120,22 +119,25 @@ export const AuthProvider = ({ children }) => {
         try {
             setLoading(true)
 
-            // Sign out from Supabase
-            await supabase.auth.signOut()
+            // Get current account
+            const accounts = msalInstance.getAllAccounts()
 
             // Sign out from MSAL
-            if (msalAccount) {
+            if (accounts.length > 0) {
                 await msalInstance.logoutPopup({
-                    account: msalAccount,
+                    account: accounts[0],
                 })
             }
 
+            // Clear local storage
+            localStorage.removeItem('msalUser')
+
+            // Clear state
             setUser(null)
             setEmployee(null)
-            setMsalAccount(null)
+            setAccessToken(null)
         } catch (error) {
             console.error('Sign out error:', error)
-            throw error
         } finally {
             setLoading(false)
         }
@@ -143,19 +145,17 @@ export const AuthProvider = ({ children }) => {
 
     const getAccessToken = async () => {
         try {
-            if (!msalAccount) {
-                const accounts = msalInstance.getAllAccounts()
-                if (accounts.length === 0) {
-                    throw new Error('No active account')
-                }
-                setMsalAccount(accounts[0])
+            const accounts = msalInstance.getAllAccounts()
+            if (accounts.length === 0) {
+                throw new Error('No active account. Please sign in.')
             }
 
             const response = await msalInstance.acquireTokenSilent({
                 ...loginRequest,
-                account: msalAccount || msalInstance.getAllAccounts()[0],
+                account: accounts[0],
             })
 
+            setAccessToken(response.accessToken)
             return response.accessToken
         } catch (error) {
             console.error('Error getting access token:', error)
@@ -163,6 +163,7 @@ export const AuthProvider = ({ children }) => {
             // Try interactive token acquisition
             try {
                 const response = await msalInstance.acquireTokenPopup(loginRequest)
+                setAccessToken(response.accessToken)
                 return response.accessToken
             } catch (popupError) {
                 console.error('Popup token acquisition failed:', popupError)
@@ -175,7 +176,7 @@ export const AuthProvider = ({ children }) => {
         user,
         employee,
         loading,
-        msalAccount,
+        accessToken,
         signInWithMicrosoft,
         signOut,
         getAccessToken,
