@@ -16,6 +16,17 @@ export default async function handler(req, res) {
     }
 
     try {
+        let { cronSecret } = req.body
+
+        // Also check headers
+        if (!cronSecret && req.headers['cronsecret']) {
+            cronSecret = req.headers['cronsecret']
+        }
+
+        // Security: Require valid CRON_SECRET for security
+        if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
+            return res.status(401).json({ error: 'Unauthorized: Valid CRON_SECRET is required' })
+        }
         // Calculate for yesterday
         const yesterday = new Date()
         yesterday.setDate(yesterday.getDate() - 1)

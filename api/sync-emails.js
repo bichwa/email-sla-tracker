@@ -20,6 +20,11 @@ export default async function handler(req, res) {
     try {
         let { accessToken, cronSecret } = req.body
 
+        // Also check headers (cronjob.org sends headers)
+        if (!cronSecret && req.headers['cronsecret']) {
+            cronSecret = req.headers['cronsecret']
+        }
+
         // Verification: If cronSecret is provided, try to get a system token
         if (cronSecret && cronSecret === process.env.CRON_SECRET) {
             console.log('Valid CRON_SECRET provided. Fetching background token...')
