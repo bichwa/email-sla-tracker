@@ -117,25 +117,33 @@ async function getBackgroundAccessToken() {
     const clientId = process.env.VITE_MICROSOFT_CLIENT_ID
     const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
 
+    if (!tenantId || !clientId || !clientSecret) {
+        throw new Error('Missing Microsoft environment variables for background sync')
+    }
+
     const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`
-    const body = new URLSearchParams({
+    const bodyParams = new URLSearchParams({
         client_id: clientId,
         scope: 'https://graph.microsoft.com/.default',
         client_secret: clientSecret,
         grant_type: 'client_credentials',
     })
 
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-    })
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: bodyParams.toString(),
+        })
 
-    const data = await response.json()
+        const data = await response.json()
 
-    if (!response.ok) {
-        throw new Error(`Failed to fetch background token: ${data.error_description || data.error}`)
+        if (!response.ok) {
+            throw new Error(`Microsoft Auth Error: ${data.error_description || data.error || 'Unknown error'}`)
+        }
+
+        return data.access_token
+    } catch (error) {
+        throw new Error(`Failed to contact Microsoft Auth: ${error.message}`)
     }
-
-    return data.access_token
 }
