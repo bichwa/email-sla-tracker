@@ -17,7 +17,8 @@ export default async function handler(req, res) {
     }
 
     try {
-        let { accessToken, cronSecret } = req.body
+        const body = req.body || {}
+        let { accessToken, cronSecret } = body
 
         // Also check headers
         if (!cronSecret && req.headers['cronsecret']) {
