@@ -20,16 +20,11 @@ export default async function handler(req, res) {
         const body = req.body || {}
         let { accessToken } = body
 
-        // FOOLPROOF SECRET FETCHING
-        let cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret']
-
-        // Clean the secret
-        if (cronSecret && typeof cronSecret === 'string') {
-            cronSecret = cronSecret.replace(/^Bearer\s+/i, '').trim()
-        }
+        const cleanProvided = (cronSecret || '').replace(/^Bearer\s+/i, '').trim()
+        const cleanStored = (process.env.CRON_SECRET || '').replace(/^Bearer\s+/i, '').trim()
 
         // Verification: If cronSecret is provided, try to get a system token
-        if (cronSecret && cronSecret === process.env.CRON_SECRET) {
+        if (cleanProvided && cleanProvided === cleanStored) {
             console.log('Valid CRON_SECRET provided. Fetching background token...')
             accessToken = await getBackgroundAccessToken()
         }
