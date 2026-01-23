@@ -108,7 +108,14 @@ export default async function handler(req, res) {
         })
     } catch (error) {
         console.error('Email sync error:', error)
-        return res.status(500).json({ error: 'Email sync failed', details: error.message })
+        // Return detailed error to help user debug in cronjob.org
+        return res.status(500).json({
+            success: false,
+            error: 'Email sync failed',
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+            hint: 'Check Vercel logs and environment variables (Tenant ID, Client ID, Client Secret)'
+        })
     }
 }
 

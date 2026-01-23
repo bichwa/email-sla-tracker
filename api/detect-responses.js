@@ -105,7 +105,12 @@ export default async function handler(req, res) {
         })
     } catch (error) {
         console.error('Response detection error:', error)
-        return res.status(500).json({ error: 'Response detection failed', details: error.message })
+        return res.status(500).json({
+            success: false,
+            error: 'Response detection failed',
+            message: error.message,
+            hint: 'Check Vercel logs and environment variables'
+        })
     }
 }
 
