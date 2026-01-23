@@ -17,16 +17,22 @@ export default async function handler(req, res) {
 
     try {
         const body = req.body || {}
-        let { cronSecret } = body
 
-        // Also check headers
-        if (!cronSecret && req.headers['cronsecret']) {
-            cronSecret = req.headers['cronsecret']
+        // FOOLPROOF SECRET FETCHING
+        let cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret']
+
+        // Clean the secret
+        if (cronSecret && typeof cronSecret === 'string') {
+            cronSecret = cronSecret.replace(/^Bearer\s+/i, '').trim()
         }
 
         // Security: Require valid CRON_SECRET for security
         if (!cronSecret || cronSecret !== process.env.CRON_SECRET) {
-            return res.status(401).json({ error: 'Unauthorized: Valid CRON_SECRET is required' })
+            return res.status(401).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'Valid cronSecret is required.'
+            })
         }
         // Calculate for yesterday
         const yesterday = new Date()

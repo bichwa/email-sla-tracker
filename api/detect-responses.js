@@ -18,11 +18,14 @@ export default async function handler(req, res) {
 
     try {
         const body = req.body || {}
-        let { accessToken, cronSecret } = body
+        let { accessToken } = body
 
-        // Also check headers
-        if (!cronSecret && req.headers['cronsecret']) {
-            cronSecret = req.headers['cronsecret']
+        // FOOLPROOF SECRET FETCHING
+        let cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret']
+
+        // Clean the secret
+        if (cronSecret && typeof cronSecret === 'string') {
+            cronSecret = cronSecret.replace(/^Bearer\s+/i, '').trim()
         }
 
         // Verification: If cronSecret is provided, try to get a system token
@@ -32,7 +35,11 @@ export default async function handler(req, res) {
         }
 
         if (!accessToken) {
-            return res.status(400).json({ error: 'Access token or valid CRON_SECRET is required' })
+            return res.status(400).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'Access token or valid cronSecret is required.'
+            })
         }
 
         const graphClient = Client.init({

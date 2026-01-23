@@ -19,11 +19,17 @@ export default async function handler(req, res) {
 
     try {
         const body = req.body || {}
-        let { accessToken, cronSecret } = body
+        let { accessToken } = body
 
-        // Also check headers (cronjob.org sends headers)
-        if (!cronSecret && req.headers['cronsecret']) {
-            cronSecret = req.headers['cronsecret']
+        // FOOLPROOF SECRET FETCHING
+        // Check 1: Query parameters (easiest to set up)
+        // Check 2: Request body
+        // Check 3: Headers
+        let cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret']
+
+        // Clean the secret: Remove "Bearer " prefix if the user added it
+        if (cronSecret && typeof cronSecret === 'string') {
+            cronSecret = cronSecret.replace(/^Bearer\s+/i, '').trim()
         }
 
         // Verification: If cronSecret is provided, try to get a system token
@@ -33,7 +39,11 @@ export default async function handler(req, res) {
         }
 
         if (!accessToken) {
-            return res.status(400).json({ error: 'Access token or valid CRON_SECRET is required' })
+            return res.status(400).json({
+                success: false,
+                error: 'Unauthorized',
+                message: 'Access token or valid cronSecret is required. You can pass it as ?cronSecret=YOUR_KEY'
+            })
         }
 
         // Initialize Graph client
