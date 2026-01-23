@@ -141,10 +141,16 @@ async function getBackgroundAccessToken() {
             body: bodyParams.toString(),
         })
 
-        const data = await response.json()
+        const text = await response.text()
+        let data
+        try {
+            data = JSON.parse(text)
+        } catch (e) {
+            data = { error: 'invalid_json', error_description: text }
+        }
 
         if (!response.ok) {
-            throw new Error(`Microsoft Auth Error: ${data.error_description || data.error || 'Unknown error'}`)
+            throw new Error(`Microsoft Auth Error (${response.status}): ${data.error_description || data.error || text}`)
         }
 
         return data.access_token
