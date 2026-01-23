@@ -18,10 +18,16 @@ export default async function handler(req, res) {
     }
 
     try {
-        const { accessToken, mailboxes } = req.body
+        let { accessToken, cronSecret } = req.body
+
+        // Verification: If cronSecret is provided, try to get a system token
+        if (cronSecret && cronSecret === process.env.CRON_SECRET) {
+            console.log('Valid CRON_SECRET provided. Fetching background token...')
+            accessToken = await getBackgroundAccessToken()
+        }
 
         if (!accessToken) {
-            return res.status(400).json({ error: 'Access token is required' })
+            return res.status(400).json({ error: 'Access token or valid CRON_SECRET is required' })
         }
 
         // Initialize Graph client
@@ -92,11 +98,43 @@ export default async function handler(req, res) {
             success: true,
             processed: totalProcessed,
             errors: totalErrors,
+            mode: cronSecret ? 'background' : 'interactive'
         })
     } catch (error) {
         console.error('Email sync error:', error)
         return res.status(500).json({ error: 'Email sync failed', details: error.message })
     }
+}
+
+/**
+ * Fetch a background access token using Microsoft Client Credentials flow
+ */
+async function getBackgroundAccessToken() {
+    const tenantId = process.env.VITE_MICROSOFT_TENANT_ID
+    const clientId = process.env.VITE_MICROSOFT_CLIENT_ID
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
+
+    const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`
+    const body = new URLSearchParams({
+        client_id: clientId,
+        scope: 'https://graph.microsoft.com/.default',
+        client_secret: clientSecret,
+        grant_type: 'client_credentials',
+    })
+
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch background token: ${data.error_description || data.error}`)
+    }
+
+    return data.access_token
 }
 
 /**
