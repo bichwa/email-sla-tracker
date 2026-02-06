@@ -97,6 +97,7 @@ export const EmailsTable = ({ emails, loading }) => {
                                             {new Date(email.received_at).toLocaleString('en-US', {
                                                 month: 'short',
                                                 day: 'numeric',
+                                                year: 'numeric',
                                                 hour: 'numeric',
                                                 minute: '2-digit',
                                             })}

@@ -246,6 +246,30 @@ function classifyEmail(email, rules) {
     let isSolverEmail = false
     let isInternal = false
 
+    // FALLBACK SYSTEM KEYWORDS (Hardcoded based on client feedback)
+    const systemKeywords = [
+        'client not picking',
+        'not ready',
+        'unreachable',
+        'undeliverable',
+        'automatic reply',
+        'out of office',
+        'ticket',
+        'update on',
+        'status of'
+    ]
+
+    for (const keyword of systemKeywords) {
+        if (subject.includes(keyword) || body.includes(keyword)) {
+            return {
+                isClientEmail: false,
+                isSystemGenerated: true,
+                isSolverEmail: false,
+                isInternal: false
+            }
+        }
+    }
+
     // Apply rules in priority order
     for (const rule of rules || []) {
         let matches = false
@@ -301,7 +325,10 @@ function classifyEmail(email, rules) {
  * Determine email scenario and responsible person
  */
 function determineScenario(email, employee) {
-    const toEmail = email.toRecipients?.[0]?.emailAddress?.address?.toLowerCase() || ''
+    const toRecipients = email.toRecipients?.map(r => r.emailAddress?.address?.toLowerCase() || '') || []
+    const ccRecipients = email.ccRecipients?.map(r => r.emailAddress?.address?.toLowerCase() || '') || []
+    const allRecipients = [...toRecipients, ...ccRecipients]
+    
     const bodyPreview = email.bodyPreview?.toLowerCase() || ''
 
     // Check for @mentions in body
@@ -314,15 +341,25 @@ function determineScenario(email, employee) {
         }
     }
 
-    // Check if sent to team email
-    if (toEmail.includes('team@')) {
+    // Check if sent to team email (ANY recipient is team@)
+    // You can add more group emails here
+    const isGroupEmail = allRecipients.some(email => 
+        email.includes('team@') || 
+        email.includes('support@') || 
+        email.includes('info@')
+    )
+
+    if (isGroupEmail) {
         return {
             scenario: 'team_email',
-            responsibleEmail: null, // Team responsibility
+            // IMPORTANT: Group emails are NOT assigned to individuals by default
+            // This fixes the "marked as unread for all team members" issue
+            responsibleEmail: null, 
         }
     }
 
     // Individual inbox
+    // Only if the employee is explicitly in the TO or CC list (and it's not a group catch-all)
     return {
         scenario: 'individual_inbox',
         responsibleEmail: employee.email,

@@ -39,7 +39,7 @@ export const Dashboard = () => {
                 </button>
             </div>
 
-            <MetricsCards metrics={metrics} loading={metricsLoading} />
+            <MetricsCards metrics={metrics} loading={metricsLoading} onFilterChange={setFilters} />
 
             <FiltersBar
                 onFilterChange={setFilters}

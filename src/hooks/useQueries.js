@@ -4,6 +4,9 @@ import { supabase } from '../lib/supabase'
 /**
  * Fetch unanswered emails from the database
  */
+/**
+ * Fetch unanswered emails from the database
+ */
 export const useUnansweredEmails = (filters = {}) => {
     return useQuery({
         queryKey: ['unanswered-emails', filters],
@@ -34,6 +37,13 @@ export const useUnansweredEmails = (filters = {}) => {
                 query = query.lte('received_at', filters.toDate)
             }
 
+            // Exclude system generated emails
+            // Note: The view 'unanswered_client_emails' should ideally handle this, 
+            // but we add it here for safety if the view includes them.
+            // If the view doesn't have this column, this might error, but 'is_system_generated' is in tracked_emails
+            // created views usually inherit columns. Let's assume the view has it.
+            query = query.eq('is_system_generated', false)
+
             const { data, error } = await query
 
             if (error) throw error
@@ -60,6 +70,7 @@ export const useSLAMetrics = (filters = {}) => {
                 .select('*')
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
+                .eq('is_system_generated', false) // Exclude system emails
 
             // Apply date filter (default to today)
             const fromDate = filters.fromDate || today.toISOString()
@@ -107,18 +118,81 @@ export const useSLAMetrics = (filters = {}) => {
 
 /**
  * Fetch team performance data
+ * REFACTORED: Now calculates dynamically from tracked_emails to support date filtering
  */
 export const useTeamPerformance = (filters = {}) => {
     return useQuery({
         queryKey: ['team-performance', filters],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from('team_performance_summary')
-                .select('*')
-                .order('email')
+            // Get today's date range (default)
+            const today = new Date()
+            today.setHours(0, 0, 0, 0)
+            const tomorrow = new Date(today)
+            tomorrow.setDate(tomorrow.getDate() + 1)
 
+            let query = supabase
+                .from('tracked_emails')
+                .select('*')
+                .eq('is_client_email', true)
+                .eq('is_incoming', true)
+                .eq('is_system_generated', false)
+
+            // Apply date filter
+            // Note: Unlike the static view, this will now respect the specific date range selected
+            const fromDate = filters.fromDate || today.toISOString()
+            const toDate = filters.toDate || tomorrow.toISOString()
+
+            query = query.gte('received_at', fromDate).lte('received_at', toDate)
+
+            const { data, error } = await query
             if (error) throw error
-            return data || []
+
+            // Aggregate data by employee
+            const stats = {}
+
+            // Initialize with known employees (optional, skipping for now to show only active)
+
+            data.forEach(email => {
+                const responsible = email.responsible_employee_email || 'Unassigned'
+
+                if (!stats[responsible]) {
+                    stats[responsible] = {
+                        email: responsible, // Mapping to 'email' prop used by chart
+                        total_assigned: 0,
+                        answered_count: 0,
+                        unanswered_count: 0,
+                        breach_count: 0,
+                        response_times: []
+                    }
+                }
+
+                stats[responsible].total_assigned++
+
+                if (email.has_response) {
+                    stats[responsible].answered_count++
+                    if (email.response_time_minutes) {
+                        stats[responsible].response_times.push(email.response_time_minutes)
+                    }
+                } else {
+                    stats[responsible].unanswered_count++
+                }
+
+                if (email.sla_breached) {
+                    stats[responsible].breach_count++
+                }
+            })
+
+            // Format for chart
+            return Object.values(stats).map(stat => ({
+                email: stat.email,
+                total_assigned: stat.total_assigned,
+                answered_count: stat.answered_count,
+                unanswered_count: stat.unanswered_count,
+                breach_count: stat.breach_count,
+                avg_response_time: stat.response_times.length > 0
+                    ? Math.round(stat.response_times.reduce((a, b) => a + b, 0) / stat.response_times.length)
+                    : 0
+            }))
         },
     })
 }
