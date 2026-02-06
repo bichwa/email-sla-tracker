@@ -75,8 +75,13 @@ export default async function handler(req, res) {
         let totalProcessed = 0
         let totalErrors = 0
 
-        // Fetch emails for each employee
-        for (const employee of employees) {
+        // 1. Fetch emails for all employees in parallel
+        const allEmailsToProcess = []
+
+        console.log(`Fetching emails for ${employees.length} employees...`)
+
+        // Use Promise.all to fetch from Graph API in parallel
+        await Promise.all(employees.map(async (employee) => {
             try {
                 // Fetch last 50 emails from the last 24 hours
                 const yesterday = new Date()
@@ -90,20 +95,35 @@ export default async function handler(req, res) {
                     .top(50)
                     .get()
 
-                // Process each email
-                for (const email of emails.value || []) {
-                    try {
-                        await processEmail(email, employee, rules)
-                        totalProcessed++
-                    } catch (procError) {
-                        console.error(`Error processing email ${email.id}:`, procError)
-                        totalErrors++
-                    }
+                if (emails.value && emails.value.length > 0) {
+                    // Add employee context to each email for processing
+                    emails.value.forEach(e => {
+                        allEmailsToProcess.push({ email: e, employee })
+                    })
                 }
             } catch (error) {
                 console.error(`Error fetching emails for ${employee.email}:`, error)
                 totalErrors++
             }
+        }))
+
+        console.log(`Found ${allEmailsToProcess.length} emails to process. Starting batch processing...`)
+
+        // 2. Process emails in batches to control concurrency (Batch size: 10)
+        const BATCH_SIZE = 10
+        for (let i = 0; i < allEmailsToProcess.length; i += BATCH_SIZE) {
+            const batch = allEmailsToProcess.slice(i, i + BATCH_SIZE)
+
+            // Process batch in parallel
+            await Promise.all(batch.map(async ({ email, employee }) => {
+                try {
+                    await processEmail(email, employee, rules)
+                    totalProcessed++
+                } catch (procError) {
+                    console.error(`Error processing email ${email.id}:`, procError)
+                    totalErrors++
+                }
+            }))
         }
 
         return res.status(200).json({
@@ -328,7 +348,7 @@ function determineScenario(email, employee) {
     const toRecipients = email.toRecipients?.map(r => r.emailAddress?.address?.toLowerCase() || '') || []
     const ccRecipients = email.ccRecipients?.map(r => r.emailAddress?.address?.toLowerCase() || '') || []
     const allRecipients = [...toRecipients, ...ccRecipients]
-    
+
     const bodyPreview = email.bodyPreview?.toLowerCase() || ''
 
     // Check for @mentions in body
@@ -343,9 +363,9 @@ function determineScenario(email, employee) {
 
     // Check if sent to team email (ANY recipient is team@)
     // You can add more group emails here
-    const isGroupEmail = allRecipients.some(email => 
-        email.includes('team@') || 
-        email.includes('support@') || 
+    const isGroupEmail = allRecipients.some(email =>
+        email.includes('team@') ||
+        email.includes('support@') ||
         email.includes('info@')
     )
 
@@ -354,7 +374,7 @@ function determineScenario(email, employee) {
             scenario: 'team_email',
             // IMPORTANT: Group emails are NOT assigned to individuals by default
             // This fixes the "marked as unread for all team members" issue
-            responsibleEmail: null, 
+            responsibleEmail: null,
         }
     }
 
