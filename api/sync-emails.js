@@ -372,9 +372,8 @@ function determineScenario(email, employee) {
     if (isGroupEmail) {
         return {
             scenario: 'team_email',
-            // IMPORTANT: Group emails are NOT assigned to individuals by default
-            // This fixes the "marked as unread for all team members" issue
-            responsibleEmail: null,
+            // Assign to the specific team account as requested
+            responsibleEmail: 'team@solvit.co.ke',
         }
     }
 
