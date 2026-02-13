@@ -57,63 +57,93 @@ export const useSLAMetrics = (filters = {}) => {
     return useQuery({
         queryKey: ['sla-metrics', filters],
         queryFn: async () => {
-            // Get today's date range (for default date filtering IF NEEDED, but SLA metrics usually need all active)
-            const today = new Date()
-            today.setHours(0, 0, 0, 0)
-            const tomorrow = new Date(today)
-            tomorrow.setDate(tomorrow.getDate() + 1)
+            // Base query builder helper
+            const buildBaseQuery = () => {
+                let q = supabase
+                    .from('tracked_emails')
+                    .select('*', { count: 'exact', head: true }) // Default to count only
+                    .eq('is_client_email', true)
+                    .eq('is_incoming', true)
+                    .eq('is_system_generated', false)
 
-            let query = supabase
+                if (filters.fromDate) q = q.gte('received_at', filters.fromDate)
+                if (filters.toDate) q = q.lte('received_at', filters.toDate)
+                if (filters.employeeEmail) q = q.eq('responsible_employee_email', filters.employeeEmail)
+
+                return q
+            }
+
+            // 1. Total Emails Count
+            const totalQuery = buildBaseQuery()
+
+            // 2. Answered Emails Count
+            const answeredQuery = buildBaseQuery().eq('has_response', true)
+
+            // 3. Breached Emails Count
+            const breachedQuery = buildBaseQuery().eq('sla_breached', true)
+
+            // 4. Response Times (for efficient avg calc) - only fetch needed column
+            let responseTimeQuery = supabase
                 .from('tracked_emails')
-                .select('*')
+                .select('response_time_minutes')
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
-                .eq('is_system_generated', false) // Exclude system emails
+                .eq('is_system_generated', false)
+                .eq('has_response', true)
+                .not('response_time_minutes', 'is', null)
 
-            // Apply date filter ONLY if provided. 
-            // If not provided, we want to see ALL active unanswered emails/breaches.
-            if (filters.fromDate) {
-                query = query.gte('received_at', filters.fromDate)
-            }
-            // Logic: If NO date filter is active, we should still show stats for ALL unanswered emails.
-            // But for "Avg Response Time" we might want to default to "Last 7/30 days" if not specified? 
-            // For now, let's keep it simple: If no filter, fetch ALL relevant emails (might be heavy later, but correct for "Open Tasks").
+            if (filters.fromDate) responseTimeQuery = responseTimeQuery.gte('received_at', filters.fromDate)
+            if (filters.toDate) responseTimeQuery = responseTimeQuery.lte('received_at', filters.toDate)
+            if (filters.employeeEmail) responseTimeQuery = responseTimeQuery.eq('responsible_employee_email', filters.employeeEmail)
 
-            if (filters.toDate) {
-                query = query.lte('received_at', filters.toDate)
-            }
+            // Run in parallel
+            const [
+                { count: totalEmails, error: errTotal },
+                { count: answeredEmails, error: errAnswered },
+                { count: breachedEmails, error: errBreached },
+                { data: responseTimes, error: errTimes }
+            ] = await Promise.all([
+                totalQuery,
+                answeredQuery,
+                breachedQuery,
+                responseTimeQuery
+            ])
 
-            if (filters.employeeEmail) {
-                query = query.eq('responsible_employee_email', filters.employeeEmail)
-            }
+            if (errTotal) throw errTotal
+            if (errAnswered) throw errAnswered
+            if (errBreached) throw errBreached
+            if (errTimes) throw errTimes
 
-            const { data, error } = await query
+            // Calculations
+            const unansweredEmails = (totalEmails || 0) - (answeredEmails || 0)
+            const withinSLA = (answeredEmails || 0) - (breachedEmails || 0) // Approximation if we don't have exact "Answered AND Not Breached" count, but strictly:
+            // Actually 'withinSLA' usually means "Answered within time". 
+            // If 'breachedEmails' includes Unanswered breaches, then 'withinSLA' calculation:
+            // Let's rely on the concept: SLA Compliance = % of emails NOT breached.
+            // Or % of ANSWERED emails that were on time? 
+            // Usually it's (Total - Breached) / Total * 100 for overall health.
 
-            if (error) throw error
+            // Re-calculating proper WithinSLA (Processed on time)
+            // For dashboard display "SLA Compliance", typically: (1 - (Breached / Total)) * 100
 
-            // Calculate metrics
-            const totalEmails = data.length
-            const answeredEmails = data.filter(e => e.has_response).length
-            const unansweredEmails = totalEmails - answeredEmails
-            const breachedEmails = data.filter(e => e.sla_breached).length
-            const withinSLA = answeredEmails - breachedEmails
-
-            // Calculate average response time (only for answered emails)
-            const answeredWithTime = data.filter(e => e.has_response && e.response_time_minutes)
-            const avgResponseTime = answeredWithTime.length > 0
-                ? Math.round(answeredWithTime.reduce((sum, e) => sum + e.response_time_minutes, 0) / answeredWithTime.length)
+            // Avg Response Time
+            const avgResponseTime = responseTimes.length > 0
+                ? Math.round(responseTimes.reduce((sum, e) => sum + e.response_time_minutes, 0) / responseTimes.length)
                 : 0
 
-            const slaCompliance = totalEmails > 0
-                ? Math.round((withinSLA / totalEmails) * 100)
+            const total = totalEmails || 0
+            const breached = breachedEmails || 0
+
+            const slaCompliance = total > 0
+                ? Math.round(((total - breached) / total) * 100)
                 : 100
 
             return {
-                totalEmails,
-                answeredEmails,
+                totalEmails: total,
+                answeredEmails: answeredEmails || 0,
                 unansweredEmails,
-                breachedEmails,
-                withinSLA,
+                breachedEmails: breached,
+                withinSLA: total - breached, // Simplified
                 avgResponseTime,
                 slaCompliance,
             }
