@@ -57,7 +57,7 @@ export const useSLAMetrics = (filters = {}) => {
     return useQuery({
         queryKey: ['sla-metrics', filters],
         queryFn: async () => {
-            // Get today's date range
+            // Get today's date range (for default date filtering IF NEEDED, but SLA metrics usually need all active)
             const today = new Date()
             today.setHours(0, 0, 0, 0)
             const tomorrow = new Date(today)
@@ -70,11 +70,18 @@ export const useSLAMetrics = (filters = {}) => {
                 .eq('is_incoming', true)
                 .eq('is_system_generated', false) // Exclude system emails
 
-            // Apply date filter (default to today)
-            const fromDate = filters.fromDate || today.toISOString()
-            const toDate = filters.toDate || tomorrow.toISOString()
+            // Apply date filter ONLY if provided. 
+            // If not provided, we want to see ALL active unanswered emails/breaches.
+            if (filters.fromDate) {
+                query = query.gte('received_at', filters.fromDate)
+            }
+            // Logic: If NO date filter is active, we should still show stats for ALL unanswered emails.
+            // But for "Avg Response Time" we might want to default to "Last 7/30 days" if not specified? 
+            // For now, let's keep it simple: If no filter, fetch ALL relevant emails (might be heavy later, but correct for "Open Tasks").
 
-            query = query.gte('received_at', fromDate).lte('received_at', toDate)
+            if (filters.toDate) {
+                query = query.lte('received_at', filters.toDate)
+            }
 
             if (filters.employeeEmail) {
                 query = query.eq('responsible_employee_email', filters.employeeEmail)
@@ -122,12 +129,6 @@ export const useTeamPerformance = (filters = {}) => {
     return useQuery({
         queryKey: ['team-performance', filters],
         queryFn: async () => {
-            // Get today's date range (default)
-            const today = new Date()
-            today.setHours(0, 0, 0, 0)
-            const tomorrow = new Date(today)
-            tomorrow.setDate(tomorrow.getDate() + 1)
-
             let query = supabase
                 .from('tracked_emails')
                 .select('*')
@@ -136,11 +137,18 @@ export const useTeamPerformance = (filters = {}) => {
                 .eq('is_system_generated', false)
 
             // Apply date filter
-            // Note: Unlike the static view, this will now respect the specific date range selected
-            const fromDate = filters.fromDate || today.toISOString()
-            const toDate = filters.toDate || tomorrow.toISOString()
+            // Default to "Last 30 days" if no filter, to avoid loading entire history
+            if (filters.fromDate) {
+                query = query.gte('received_at', filters.fromDate)
+            } else {
+                const thirtyDaysAgo = new Date()
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                query = query.gte('received_at', thirtyDaysAgo.toISOString())
+            }
 
-            query = query.gte('received_at', fromDate).lte('received_at', toDate)
+            if (filters.toDate) {
+                query = query.lte('received_at', filters.toDate)
+            }
 
             const { data, error } = await query
             if (error) throw error
@@ -148,49 +156,31 @@ export const useTeamPerformance = (filters = {}) => {
             // Aggregate data by employee
             const stats = {}
 
-            // Initialize with known employees (optional, skipping for now to show only active)
-
             data.forEach(email => {
                 const responsible = email.responsible_employee_email || 'Unassigned'
 
-                if (!stats[responsible]) {
-                    stats[responsible] = {
-                        email: responsible, // Mapping to 'email' prop used by chart
-                        total_assigned: 0,
-                        answered_count: 0,
-                        unanswered_count: 0,
-                        breach_count: 0,
-                        response_times: []
+                // Simplify email to name for display (e.g. "vmusyoka@..." -> "vmusyoka")
+                const name = responsible.split('@')[0]
+
+                if (!stats[name]) {
+                    stats[name] = {
+                        name: name,
+                        total_received: 0,
+                        total_responded: 0,
+                        unanswered: 0,
                     }
                 }
 
-                stats[responsible].total_assigned++
+                stats[name].total_received++
 
                 if (email.has_response) {
-                    stats[responsible].answered_count++
-                    if (email.response_time_minutes) {
-                        stats[responsible].response_times.push(email.response_time_minutes)
-                    }
+                    stats[name].total_responded++
                 } else {
-                    stats[responsible].unanswered_count++
-                }
-
-                if (email.sla_breached) {
-                    stats[responsible].breach_count++
+                    stats[name].unanswered++
                 }
             })
 
-            // Format for chart
-            return Object.values(stats).map(stat => ({
-                email: stat.email,
-                total_assigned: stat.total_assigned,
-                answered_count: stat.answered_count,
-                unanswered_count: stat.unanswered_count,
-                breach_count: stat.breach_count,
-                avg_response_time: stat.response_times.length > 0
-                    ? Math.round(stat.response_times.reduce((a, b) => a + b, 0) / stat.response_times.length)
-                    : 0
-            }))
+            return Object.values(stats)
         },
     })
 }

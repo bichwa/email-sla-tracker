@@ -1,12 +1,16 @@
 import { Mail, AlertTriangle, Clock, CheckCircle } from 'lucide-react'
 
 export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
-    const handleCardClick = (title) => {
-        if (title === 'SLA Breaches' && onFilterChange) {
+    const handleCardClick = (card) => {
+        if (!onFilterChange) return
+
+        if (card.title === 'SLA Breaches') {
             onFilterChange((prev) => ({
                 ...prev,
-                slaBreached: 'true'
+                slaBreached: prev.slaBreached === 'true' ? undefined : 'true' // Toggle
             }))
+        } else if (card.title === 'Unanswered Emails') {
+            onFilterChange({}) // Clear all filters to show all
         }
     }
 
@@ -17,6 +21,8 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             icon: Mail,
             color: 'primary',
             description: 'Awaiting response',
+            isClickable: true,
+            cursor: 'cursor-pointer hover:bg-blue-50'
         },
         {
             title: 'SLA Breaches',
@@ -71,7 +77,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
                 return (
                     <div
                         key={card.title}
-                        onClick={() => card.isClickable && handleCardClick(card.title)}
+                        onClick={() => card.isClickable && handleCardClick(card)}
                         className={`card transition-all duration-200 animate-fade-in ${card.cursor || ''} ${card.isClickable ? 'hover:shadow-lg active:scale-95' : 'hover:shadow-md'}`}
                         role={card.isClickable ? 'button' : 'article'}
                     >
