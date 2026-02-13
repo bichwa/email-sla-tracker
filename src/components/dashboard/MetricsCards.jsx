@@ -5,13 +5,21 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
         if (!onFilterChange) return
 
         if (title === 'Unanswered Emails') {
-            // Reset filters to show all
-            onFilterChange({})
+            // Reset filters to show all Unanswered (default view)
+            onFilterChange({ hasResponse: false })
+        } else if (title === 'Answered Emails') {
+            // Filter to show Answered
+            onFilterChange((prev) => ({
+                ...prev,
+                hasResponse: true,
+                slaBreached: undefined // Clear breach filter to see all answered
+            }))
         } else if (title === 'SLA Breaches') {
             // Filter to show only breached
             onFilterChange((prev) => ({
                 ...prev,
-                slaBreached: true
+                slaBreached: true,
+                hasResponse: undefined // Clear response filter (show breached regardless of response status)
             }))
         } else if (title === 'SLA Compliance') {
             // Maybe filter by "Within SLA"? 
@@ -29,6 +37,15 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             description: 'Awaiting response',
             isClickable: true,
             cursor: 'cursor-pointer hover:bg-blue-50'
+        },
+        {
+            title: 'Answered Emails',
+            value: metrics?.answeredEmails || 0,
+            icon: CheckCircle,
+            color: 'success',
+            description: 'Responses sent',
+            isClickable: true,
+            cursor: ' cursor-pointer hover:bg-green-50'
         },
         {
             title: 'SLA Breaches',

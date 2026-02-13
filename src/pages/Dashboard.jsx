@@ -4,13 +4,13 @@ import { MetricsCards } from '../components/dashboard/MetricsCards'
 import { EmailsTable } from '../components/dashboard/EmailsTable'
 import { FiltersBar } from '../components/dashboard/FiltersBar'
 import { TeamLoadChart } from '../components/dashboard/TeamLoadChart'
-import { useUnansweredEmails, useSLAMetrics, useTeamPerformance, useEmployees } from '../hooks/useQueries'
+import { useEmailList, useSLAMetrics, useTeamPerformance, useEmployees } from '../hooks/useQueries'
 import { RefreshCw } from 'lucide-react'
 
 export const Dashboard = () => {
-    const [filters, setFilters] = useState({})
+    const [filters, setFilters] = useState({ hasResponse: false }) // Default to Unanswered
 
-    const { data: emails, isLoading: emailsLoading, refetch: refetchEmails } = useUnansweredEmails(filters)
+    const { data: emails, isLoading: emailsLoading, refetch: refetchEmails } = useEmailList(filters)
     const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useSLAMetrics(filters)
     const { data: teamData, isLoading: teamLoading } = useTeamPerformance(filters)
     const { data: employees, isLoading: employeesLoading } = useEmployees()

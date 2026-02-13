@@ -7,13 +7,16 @@ import { supabase } from '../lib/supabase'
 /**
  * Fetch unanswered emails from the database
  */
-export const useUnansweredEmails = (filters = {}) => {
+export const useEmailList = (filters = {}) => {
     return useQuery({
-        queryKey: ['unanswered-emails', filters],
+        queryKey: ['email-list', filters],
         queryFn: async () => {
             let query = supabase
-                .from('unanswered_client_emails')
+                .from('tracked_emails')
                 .select('*')
+                .eq('is_client_email', true)
+                .eq('is_incoming', true)
+                .eq('is_system_generated', false)
                 .order('received_at', { ascending: false })
 
             // Apply filters
@@ -29,6 +32,15 @@ export const useUnansweredEmails = (filters = {}) => {
                 query = query.eq('sla_breached', filters.slaBreached)
             }
 
+            if (filters.hasResponse !== undefined) {
+                query = query.eq('has_response', filters.hasResponse)
+            } else {
+                // Default: If not specified, and not asking for SLA breaches specifically (which might include answered?), 
+                // we historically showed only unanswered.
+                // However, let's leave it open: if undefined, show ALL.
+                // But Dashboard.jsx will control this default.
+            }
+
             if (filters.fromDate) {
                 query = query.gte('received_at', filters.fromDate)
             }
@@ -37,10 +49,12 @@ export const useUnansweredEmails = (filters = {}) => {
                 query = query.lte('received_at', filters.toDate)
             }
 
-            // Exclude system generated emails
-            // The view 'unanswered_client_emails' does not have 'is_system_generated' column
-            // and likely already filters this. Removing explicit filter to avoid 400 error.
-            // query = query.eq('is_system_generated', false)
+            // Limit to avoid browser crash on huge datasets if no filters
+            // But we have pagination? No, unlimited scroll or just 50... user didn't specify.
+            // Previous view return everything.
+            // Let's add a safe limit of 500 for now to prevent crashing like before? 
+            // Or just return all (the previous issue was 1000 limit *truncating* metrics, but listing 1000 emails is fine for UI usually).
+            query = query.limit(200) // Safe UI limit for now
 
             const { data, error } = await query
 
