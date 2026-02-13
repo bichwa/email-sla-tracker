@@ -5,7 +5,11 @@
             "schedule": "0 0 * * *"
         },
         {
-            "path": "/api/master-sync",
+            "path": "/api/sync-emails",
+            "schedule": "*/10 * * * *"
+        },
+        {
+            "path": "/api/detect-responses",
             "schedule": "*/10 * * * *"
         }
     ],
