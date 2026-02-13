@@ -75,15 +75,19 @@ export default async function handler(req, res) {
         let totalProcessed = 0
         let totalErrors = 0
 
-        // 1. Fetch emails for all employees in parallel
+        // 1. Fetch emails for a SUBSET of employees to prevent timeouts
+        // Randomly shuffle employees and pick 5
+        const shuffled = employees.sort(() => 0.5 - Math.random())
+        const selectedEmployees = shuffled.slice(0, 5)
+
         const allEmailsToProcess = []
 
-        console.log(`Fetching emails for ${employees.length} employees...`)
+        console.log(`Processing ${selectedEmployees.length} randomly selected employees (out of ${employees.length}) to prevent timeouts...`)
 
         // Use Promise.all to fetch from Graph API in parallel
-        await Promise.all(employees.map(async (employee) => {
+        await Promise.all(selectedEmployees.map(async (employee) => {
             try {
-                // Fetch last 50 emails from the last 24 hours
+                // Fetch last 20 emails (reduced from 50) from the last 24 hours
                 const yesterday = new Date()
                 yesterday.setDate(yesterday.getDate() - 1)
 
@@ -92,7 +96,7 @@ export default async function handler(req, res) {
                     .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments,conversationId,internetMessageId')
                     .filter(`receivedDateTime ge ${yesterday.toISOString()}`)
                     .orderby('receivedDateTime desc')
-                    .top(50)
+                    .top(20) // Reduced limit
                     .get()
 
                 if (emails.value && emails.value.length > 0) {

@@ -46,17 +46,21 @@ export default async function handler(req, res) {
             },
         })
 
-        // Get unanswered emails
+        // Get unanswered emails - Limit to oldest 50 to prevent timeouts
         const { data: unansweredEmails, error: fetchError } = await supabase
             .from('tracked_emails')
             .select('*')
             .eq('is_incoming', true)
             .eq('has_response', false)
             .eq('is_client_email', true)
+            .order('received_at', { ascending: true }) // Process oldest first
+            .limit(50) // Process max 50 per run
 
         if (fetchError) {
             return res.status(500).json({ error: 'Failed to fetch emails' })
         }
+
+        console.log(`Processing ${unansweredEmails.length} unanswered emails...`)
 
         let responsesDetected = 0
 

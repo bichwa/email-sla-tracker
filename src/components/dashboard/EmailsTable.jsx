@@ -1,7 +1,11 @@
+import { useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
-import { Mail, ExternalLink } from 'lucide-react'
+import { Mail, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export const EmailsTable = ({ emails, loading }) => {
+    const [currentPage, setCurrentPage] = useState(1)
+    const itemsPerPage = 10
+
     if (loading) {
         return (
             <div className="card">
@@ -31,16 +35,30 @@ export const EmailsTable = ({ emails, loading }) => {
         )
     }
 
+    // Pagination Logic
+    const totalPages = Math.ceil(emails.length / itemsPerPage)
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const currentEmails = emails.slice(startIndex, startIndex + itemsPerPage)
+
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setCurrentPage(newPage)
+        }
+    }
+
     return (
         <div className="card">
             <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-semibold text-gray-900">
                     Unanswered Emails ({emails.length})
                 </h2>
+                <span className="text-sm text-gray-500">
+                    Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, emails.length)} of {emails.length}
+                </span>
             </div>
 
             <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-full divide-y divide-gray-200 mb-4">
                     <thead>
                         <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             <th className="pb-3 pr-6">Subject</th>
@@ -53,7 +71,7 @@ export const EmailsTable = ({ emails, loading }) => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                        {emails.map((email) => {
+                        {currentEmails.map((email) => {
                             const minutesWaiting = Math.floor(email.minutes_waiting || 0)
                             const isBreached = email.sla_breached
 
@@ -124,6 +142,29 @@ export const EmailsTable = ({ emails, loading }) => {
                         })}
                     </tbody>
                 </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+                <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="btn-secondary flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1"
+                >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                </button>
+                <span className="text-sm text-gray-600">
+                    Page {currentPage} of {totalPages}
+                </span>
+                <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="btn-secondary flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1"
+                >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                </button>
             </div>
         </div>
     )
