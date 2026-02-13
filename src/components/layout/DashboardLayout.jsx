@@ -7,7 +7,8 @@ import {
     LogOut,
     ChevronDown,
     User,
-    Shield
+    Shield,
+    FileText
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -18,6 +19,7 @@ export const DashboardLayout = ({ children }) => {
 
     const navigation = [
         { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { name: 'Reports', href: '/reports', icon: FileText },
         ...(isAdmin ? [{ name: 'Rules Management', href: '/admin/rules', icon: Settings }] : []),
     ]
 
@@ -99,8 +101,8 @@ export const DashboardLayout = ({ children }) => {
                                     key={item.name}
                                     to={item.href}
                                     className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${isActive
-                                            ? 'border-primary-600 text-primary-600'
-                                            : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+                                        ? 'border-primary-600 text-primary-600'
+                                        : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
                                         }`}
                                 >
                                     <Icon className="w-4 h-4" />
