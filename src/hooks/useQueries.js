@@ -38,11 +38,9 @@ export const useUnansweredEmails = (filters = {}) => {
             }
 
             // Exclude system generated emails
-            // Note: The view 'unanswered_client_emails' should ideally handle this, 
-            // but we add it here for safety if the view includes them.
-            // If the view doesn't have this column, this might error, but 'is_system_generated' is in tracked_emails
-            // created views usually inherit columns. Let's assume the view has it.
-            query = query.eq('is_system_generated', false)
+            // The view 'unanswered_client_emails' does not have 'is_system_generated' column
+            // and likely already filters this. Removing explicit filter to avoid 400 error.
+            // query = query.eq('is_system_generated', false)
 
             const { data, error } = await query
 
