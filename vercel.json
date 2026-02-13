@@ -13,6 +13,7 @@
             "schedule": "*/10 * * * *"
         }
     ],
+    "outputDirectory": "dist",
     "rewrites": [
         {
             "source": "/api/(.*)",
