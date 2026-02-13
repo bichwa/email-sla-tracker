@@ -3,6 +3,10 @@
         {
             "path": "/api/calculate-metrics",
             "schedule": "0 0 * * *"
+        },
+        {
+            "path": "/api/master-sync",
+            "schedule": "*/10 * * * *"
         }
     ],
     "rewrites": [
