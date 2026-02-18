@@ -46,75 +46,113 @@ export default async function handler(req, res) {
             },
         })
 
-        // Get unanswered emails - Limit to oldest 50 to prevent timeouts
+        // Get unanswered emails - Process 200 per run to clear backlog faster
         const { data: unansweredEmails, error: fetchError } = await supabase
             .from('tracked_emails')
             .select('*')
             .eq('is_incoming', true)
             .eq('has_response', false)
             .eq('is_client_email', true)
+            .not('conversation_id', 'is', null) // Must have conversation_id to match
             .order('received_at', { ascending: true }) // Process oldest first
-            .limit(50) // Process max 50 per run
+            .limit(200) // Process max 200 per run
 
         if (fetchError) {
-            return res.status(500).json({ error: 'Failed to fetch emails' })
+            console.error('Supabase fetch error:', fetchError)
+            return res.status(500).json({ error: 'Failed to fetch emails', details: fetchError.message })
         }
 
         console.log(`Processing ${unansweredEmails.length} unanswered emails...`)
 
         let responsesDetected = 0
+        let errorsCount = 0
+        let skippedCount = 0
 
-        // Check emails in parallel batches to run faster
-        const BATCH_SIZE = 10
-        for (let i = 0; i < unansweredEmails.length; i += BATCH_SIZE) {
-            const batch = unansweredEmails.slice(i, i + BATCH_SIZE)
+        // Group emails by responsible employee to reduce API calls
+        const emailsByEmployee = {}
+        for (const email of unansweredEmails) {
+            if (!email.responsible_employee_email) {
+                skippedCount++
+                continue
+            }
+            const key = email.responsible_employee_email
+            if (!emailsByEmployee[key]) emailsByEmployee[key] = []
+            emailsByEmployee[key].push(email)
+        }
 
-            await Promise.all(batch.map(async (trackedEmail) => {
-                try {
-                    if (!trackedEmail.responsible_employee_email) {
-                        return
-                    }
+        console.log(`Grouped into ${Object.keys(emailsByEmployee).length} employees, skipped ${skippedCount} without responsible email`)
 
-                    // Fetch sent emails from the responsible person
-                    const sentEmails = await graphClient
-                        .api(`/users/${trackedEmail.responsible_employee_email}/sentItems`)
-                        .filter(`conversationId eq '${trackedEmail.conversation_id}' and sentDateTime gt ${trackedEmail.received_at}`)
-                        .select('id,sentDateTime,toRecipients')
-                        .top(10)
-                        .get()
+        // Process each employee's emails
+        for (const [employeeEmail, emails] of Object.entries(emailsByEmployee)) {
+            try {
+                // For each employee, fetch their recent sent items ONCE
+                // Use the correct Graph API endpoint: mailFolders/sentitems/messages
+                const sentEmails = await graphClient
+                    .api(`/users/${employeeEmail}/mailFolders/sentitems/messages`)
+                    .select('id,sentDateTime,conversationId,toRecipients,subject')
+                    .orderby('sentDateTime desc')
+                    .top(100)
+                    .get()
 
-                    if (sentEmails.value && sentEmails.value.length > 0) {
-                        // Found a response
-                        const firstResponse = sentEmails.value[0]
-                        const responseTime = Math.floor(
-                            (new Date(firstResponse.sentDateTime) - new Date(trackedEmail.received_at)) / (1000 * 60)
-                        )
+                if (!sentEmails.value || sentEmails.value.length === 0) {
+                    continue
+                }
 
-                        // Update tracked email
-                        const { error: updateError } = await supabase
-                            .from('tracked_emails')
-                            .update({
-                                has_response: true,
-                                first_response_at: firstResponse.sentDateTime,
-                                first_responder_email: trackedEmail.responsible_employee_email,
-                                response_time_minutes: responseTime,
-                                responded_at: firstResponse.sentDateTime,
-                            })
-                            .eq('id', trackedEmail.id)
-
-                        if (!updateError) {
-                            responsesDetected++
+                // Build a map of conversationId -> earliest sent email
+                const sentByConversation = {}
+                for (const sent of sentEmails.value) {
+                    if (sent.conversationId) {
+                        if (!sentByConversation[sent.conversationId]) {
+                            sentByConversation[sent.conversationId] = sent
                         }
                     }
-                } catch (error) {
-                    console.error(`Error checking responses for email ${trackedEmail.id}:`, error)
                 }
-            }))
+
+                // Match tracked emails against sent items by conversationId
+                for (const trackedEmail of emails) {
+                    const matchingSent = sentByConversation[trackedEmail.conversation_id]
+
+                    if (matchingSent) {
+                        // Verify the sent email was AFTER the received email
+                        const sentDate = new Date(matchingSent.sentDateTime)
+                        const receivedDate = new Date(trackedEmail.received_at)
+
+                        if (sentDate > receivedDate) {
+                            const responseTime = Math.floor((sentDate - receivedDate) / (1000 * 60))
+
+                            const { error: updateError } = await supabase
+                                .from('tracked_emails')
+                                .update({
+                                    has_response: true,
+                                    first_response_at: matchingSent.sentDateTime,
+                                    first_responder_email: employeeEmail,
+                                    response_time_minutes: responseTime,
+                                    responded_at: matchingSent.sentDateTime,
+                                })
+                                .eq('id', trackedEmail.id)
+
+                            if (!updateError) {
+                                responsesDetected++
+                            } else {
+                                console.error(`Update error for ${trackedEmail.id}:`, updateError)
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                errorsCount++
+                console.error(`Error checking sent items for ${employeeEmail}:`, error.message || error)
+            }
         }
+
+        console.log(`Done. Responses detected: ${responsesDetected}, Errors: ${errorsCount}, Skipped: ${skippedCount}`)
 
         return res.status(200).json({
             success: true,
             responsesDetected,
+            processed: unansweredEmails.length,
+            errors: errorsCount,
+            skipped: skippedCount,
             mode: cronSecret ? 'background' : 'interactive'
         })
     } catch (error) {
