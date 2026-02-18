@@ -54,7 +54,7 @@ export default async function handler(req, res) {
             .eq('has_response', false)
             .eq('is_client_email', true)
             .not('conversation_id', 'is', null) // Must have conversation_id to match
-            .order('received_at', { ascending: true }) // Process oldest first
+            .order('received_at', { ascending: false }) // Process newest first to show immediate dashboard impact
             .limit(200) // Process max 200 per run
 
         if (fetchError) {
