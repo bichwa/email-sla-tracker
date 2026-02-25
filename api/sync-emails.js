@@ -349,6 +349,80 @@ function classifyEmail(email, rules) {
 }
 
 /**
+ * Domain keyword → Account Manager email mapping
+ * Used to auto-assign group emails (team@, cs-team@) to the correct account manager
+ * based on the sender's email domain.
+ *
+ * HOW TO UPDATE: Add new entries as { keywords: ['domain_keyword'], assignee: 'email' }
+ * The keyword is matched against the sender's full email address (supports partial matches).
+ */
+const ACCOUNT_ASSIGNMENT_RULES = [
+    // === Irene Odago ===
+    { keywords: ['apainsurance', 'apalife'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['fidelityshield'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['ga-insurance', 'gakenya', 'gainsurance'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['madison.co'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['pioneerassurance', 'pioneerinsurance'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['icealion'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['directline.co'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['dtbafrica'], assignee: 'iodago@solvit.co.ke' },
+    { keywords: ['ncbagroup', 'ncbainsurance'], assignee: 'iodago@solvit.co.ke' },
+
+    // === Joyce Mungasi ===
+    { keywords: ['oldmutual'], assignee: 'jmungasi@solvit.co.ke' },
+    { keywords: ['heritage.co', 'heritageinsurance'], assignee: 'jmungasi@solvit.co.ke' },
+    { keywords: ['cannon.co'], assignee: 'jmungasi@solvit.co.ke' },
+    { keywords: ['corporatekenya', 'cickenya'], assignee: 'jmungasi@solvit.co.ke' },
+    { keywords: ['definite'], assignee: 'jmungasi@solvit.co.ke' },
+    { keywords: ['monarchinsurance', 'monarch.co'], assignee: 'jmungasi@solvit.co.ke' },
+    { keywords: ['stima-sacco', 'stimasacco'], assignee: 'jmungasi@solvit.co.ke' },
+
+    // === Virginia Musyoka ===
+    { keywords: ['takaful'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['mayfair.co'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['cic.co', 'cicinsurance'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['occidental-ins', 'occidental.co'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['kenindia'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['sanlam', 'sanlamallianz'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['jubilee'], assignee: 'vmusyoka@solvit.co.ke' },
+    { keywords: ['allianz'], assignee: 'vmusyoka@solvit.co.ke' },
+
+    // === Belinda Achieng ===
+    { keywords: ['firstassurance'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['pacis'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['britam'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['amaco'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['geminia'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['mua.co'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['realpeople'], assignee: 'bachieng@solvit.co.ke' },
+
+    // === Mercy Odondi ===
+    { keywords: ['intrafrica', 'intraafrica'], assignee: 'modondi@solvit.co.ke' },
+    { keywords: ['aar.co', 'aar-insurance'], assignee: 'modondi@solvit.co.ke' },
+    { keywords: ['starinsurance', 'stardiscovery', 'starlifekenya'], assignee: 'modondi@solvit.co.ke' },
+    { keywords: ['jiajiri'], assignee: 'modondi@solvit.co.ke' },
+]
+
+/**
+ * Try to match sender email against account assignment rules.
+ * Returns the assignee email or null if no match.
+ */
+function matchSenderToAccountManager(senderEmail) {
+    if (!senderEmail) return null
+    const sender = senderEmail.toLowerCase()
+
+    for (const rule of ACCOUNT_ASSIGNMENT_RULES) {
+        for (const keyword of rule.keywords) {
+            if (sender.includes(keyword)) {
+                return rule.assignee
+            }
+        }
+    }
+
+    return null // No match found
+}
+
+/**
  * Determine email scenario and responsible person
  */
 function determineScenario(email, employee) {
@@ -357,6 +431,7 @@ function determineScenario(email, employee) {
     const allRecipients = [...toRecipients, ...ccRecipients]
 
     const bodyPreview = email.bodyPreview?.toLowerCase() || ''
+    const fromEmail = email.from?.emailAddress?.address?.toLowerCase() || ''
 
     // Check for @mentions in body
     const mentionMatch = bodyPreview.match(/@(\w+)/i)
@@ -368,24 +443,33 @@ function determineScenario(email, employee) {
         }
     }
 
-    // Check if sent to team email (ANY recipient is team@)
-    // You can add more group emails here
-    const isGroupEmail = allRecipients.some(email =>
-        email.includes('team@') ||
-        email.includes('support@') ||
-        email.includes('info@')
+    // Check if sent to team/group email
+    const isGroupEmail = allRecipients.some(addr =>
+        addr.includes('team@') ||
+        addr.includes('cs-team@') ||
+        addr.includes('support@') ||
+        addr.includes('info@')
     )
 
     if (isGroupEmail) {
+        // Try to auto-assign based on sender's domain
+        const assignedManager = matchSenderToAccountManager(fromEmail)
+
+        if (assignedManager) {
+            return {
+                scenario: 'team_email',
+                responsibleEmail: assignedManager,
+            }
+        }
+
+        // Fallback: no matching rule, assign to generic team
         return {
             scenario: 'team_email',
-            // Assign to the specific team account as requested
             responsibleEmail: 'team@solvit.co.ke',
         }
     }
 
     // Individual inbox
-    // Only if the employee is explicitly in the TO or CC list (and it's not a group catch-all)
     return {
         scenario: 'individual_inbox',
         responsibleEmail: employee.email,
