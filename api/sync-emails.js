@@ -395,6 +395,7 @@ const ACCOUNT_ASSIGNMENT_RULES = [
     { keywords: ['geminia'], assignee: 'bachieng@solvit.co.ke' },
     { keywords: ['mua.co'], assignee: 'bachieng@solvit.co.ke' },
     { keywords: ['realpeople'], assignee: 'bachieng@solvit.co.ke' },
+    { keywords: ['innovexsolutions'], assignee: 'bachieng@solvit.co.ke' },
 
     // === Mercy Odondi ===
     { keywords: ['intrafrica', 'intraafrica'], assignee: 'modondi@solvit.co.ke' },
