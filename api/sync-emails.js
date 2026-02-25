@@ -202,11 +202,14 @@ async function getBackgroundAccessToken() {
  * Process and classify a single email
  */
 async function processEmail(email, employee, rules) {
-    // Check if email already exists
+    // Use internetMessageId for dedup — it's globally unique per email,
+    // unlike Graph API 'id' which differs per mailbox (causing duplicates).
+    const globalMessageId = email.internetMessageId || email.id
+
     const { data: existing } = await supabase
         .from('tracked_emails')
         .select('id')
-        .eq('message_id', email.id)
+        .eq('internet_message_id', globalMessageId)
         .single()
 
     if (existing) {
@@ -231,7 +234,7 @@ async function processEmail(email, employee, rules) {
         .insert([{
             message_id: email.id,
             conversation_id: email.conversationId,
-            internet_message_id: email.internetMessageId,
+            internet_message_id: globalMessageId,
             subject: email.subject || null,
             from_email: fromEmail,
             from_name: fromName,
