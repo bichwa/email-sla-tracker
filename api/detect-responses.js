@@ -46,16 +46,31 @@ export default async function handler(req, res) {
             },
         })
 
-        // Get unanswered emails - Process 200 per run to clear backlog faster
+        // Get ALL active, client-facing employees (real mailboxes we can check sent items from)
+        const { data: employees, error: empError } = await supabase
+            .from('employees')
+            .select('email')
+            .eq('is_active', true)
+            .eq('is_client_facing', true)
+
+        if (empError) {
+            console.error('Error fetching employees:', empError)
+            return res.status(500).json({ error: 'Failed to fetch employees' })
+        }
+
+        const employeeEmails = employees.map(e => e.email)
+        console.log(`Found ${employeeEmails.length} active employees to check sent items for`)
+
+        // Get unanswered emails - Process 500 per run to clear backlog faster
         const { data: unansweredEmails, error: fetchError } = await supabase
             .from('tracked_emails')
             .select('*')
             .eq('is_incoming', true)
             .eq('has_response', false)
             .eq('is_client_email', true)
-            .not('conversation_id', 'is', null) // Must have conversation_id to match
-            .order('received_at', { ascending: false }) // Process newest first to show immediate dashboard impact
-            .limit(200) // Process max 200 per run
+            .not('conversation_id', 'is', null)
+            .order('received_at', { ascending: false })
+            .limit(500)
 
         if (fetchError) {
             console.error('Supabase fetch error:', fetchError)
@@ -66,93 +81,104 @@ export default async function handler(req, res) {
 
         let responsesDetected = 0
         let errorsCount = 0
-        let skippedCount = 0
 
-        // Group emails by responsible employee to reduce API calls
-        const emailsByEmployee = {}
-        for (const email of unansweredEmails) {
-            if (!email.responsible_employee_email) {
-                skippedCount++
-                continue
-            }
-            const key = email.responsible_employee_email
-            if (!emailsByEmployee[key]) emailsByEmployee[key] = []
-            emailsByEmployee[key].push(email)
-        }
+        // STEP 1: Fetch sent items from ALL real employee mailboxes in parallel
+        // This is the key fix — instead of only checking the assigned employee's sent items,
+        // we check ALL employees because:
+        //   a) team@solvit.co.ke emails could be answered by ANY team member
+        //   b) Even individually-assigned emails might be answered by a colleague
+        const combinedSentByConversation = {}
 
-        console.log(`Grouped into ${Object.keys(emailsByEmployee).length} employees, skipped ${skippedCount} without responsible email`)
+        // Process employees in batches of 5 to avoid overloading Graph API
+        const EMP_BATCH_SIZE = 5
+        for (let i = 0; i < employeeEmails.length; i += EMP_BATCH_SIZE) {
+            const batch = employeeEmails.slice(i, i + EMP_BATCH_SIZE)
 
-        // Process each employee's emails
-        for (const [employeeEmail, emails] of Object.entries(emailsByEmployee)) {
-            try {
-                // For each employee, fetch their recent sent items ONCE
-                // Use the correct Graph API endpoint: mailFolders/sentitems/messages
-                const sentEmails = await graphClient
-                    .api(`/users/${employeeEmail}/mailFolders/sentitems/messages`)
-                    .select('id,sentDateTime,conversationId,toRecipients,subject')
-                    .orderby('sentDateTime desc')
-                    .top(100)
-                    .get()
+            await Promise.all(batch.map(async (employeeEmail) => {
+                try {
+                    const sentEmails = await graphClient
+                        .api(`/users/${employeeEmail}/mailFolders/sentitems/messages`)
+                        .select('id,sentDateTime,conversationId,toRecipients,subject')
+                        .orderby('sentDateTime desc')
+                        .top(100)
+                        .get()
 
-                if (!sentEmails.value || sentEmails.value.length === 0) {
-                    continue
-                }
+                    if (!sentEmails.value || sentEmails.value.length === 0) return
 
-                // Build a map of conversationId -> earliest sent email
-                const sentByConversation = {}
-                for (const sent of sentEmails.value) {
-                    if (sent.conversationId) {
-                        if (!sentByConversation[sent.conversationId]) {
-                            sentByConversation[sent.conversationId] = sent
-                        }
-                    }
-                }
+                    for (const sent of sentEmails.value) {
+                        if (!sent.conversationId) continue
 
-                // Match tracked emails against sent items by conversationId
-                for (const trackedEmail of emails) {
-                    const matchingSent = sentByConversation[trackedEmail.conversation_id]
-
-                    if (matchingSent) {
-                        // Verify the sent email was AFTER the received email
-                        const sentDate = new Date(matchingSent.sentDateTime)
-                        const receivedDate = new Date(trackedEmail.received_at)
-
-                        if (sentDate > receivedDate) {
-                            const responseTime = Math.floor((sentDate - receivedDate) / (1000 * 60))
-
-                            const { error: updateError } = await supabase
-                                .from('tracked_emails')
-                                .update({
-                                    has_response: true,
-                                    first_response_at: matchingSent.sentDateTime,
-                                    first_responder_email: employeeEmail,
-                                    response_time_minutes: responseTime,
-                                    responded_at: matchingSent.sentDateTime,
-                                })
-                                .eq('id', trackedEmail.id)
-
-                            if (!updateError) {
-                                responsesDetected++
-                            } else {
-                                console.error(`Update error for ${trackedEmail.id}:`, updateError)
+                        // Keep the EARLIEST response per conversation across all employees
+                        const existing = combinedSentByConversation[sent.conversationId]
+                        if (!existing || new Date(sent.sentDateTime) < new Date(existing.sentDateTime)) {
+                            combinedSentByConversation[sent.conversationId] = {
+                                ...sent,
+                                responderEmail: employeeEmail
                             }
                         }
                     }
+                } catch (error) {
+                    // Don't count as error — some mailboxes may not be accessible
+                    console.warn(`Could not fetch sent items for ${employeeEmail}: ${error.message || error}`)
                 }
-            } catch (error) {
-                errorsCount++
-                console.error(`Error checking sent items for ${employeeEmail}:`, error.message || error)
-            }
+            }))
         }
 
-        console.log(`Done. Responses detected: ${responsesDetected}, Errors: ${errorsCount}, Skipped: ${skippedCount}`)
+        console.log(`Built combined sent map with ${Object.keys(combinedSentByConversation).length} unique conversations`)
+
+        // STEP 2: Match ALL unanswered emails against the combined sent items map
+        // Process in batches to avoid too many concurrent DB updates
+        const DB_BATCH_SIZE = 20
+        for (let i = 0; i < unansweredEmails.length; i += DB_BATCH_SIZE) {
+            const batch = unansweredEmails.slice(i, i + DB_BATCH_SIZE)
+
+            await Promise.all(batch.map(async (trackedEmail) => {
+                try {
+                    const matchingSent = combinedSentByConversation[trackedEmail.conversation_id]
+
+                    if (!matchingSent) return
+
+                    // Verify the sent email was AFTER the received email
+                    const sentDate = new Date(matchingSent.sentDateTime)
+                    const receivedDate = new Date(trackedEmail.received_at)
+
+                    if (sentDate <= receivedDate) return
+
+                    const responseTime = Math.floor((sentDate - receivedDate) / (1000 * 60))
+
+                    const { error: updateError } = await supabase
+                        .from('tracked_emails')
+                        .update({
+                            has_response: true,
+                            first_response_at: matchingSent.sentDateTime,
+                            first_responder_email: matchingSent.responderEmail,
+                            response_time_minutes: responseTime,
+                            responded_at: matchingSent.sentDateTime,
+                        })
+                        .eq('id', trackedEmail.id)
+
+                    if (!updateError) {
+                        responsesDetected++
+                    } else {
+                        console.error(`Update error for ${trackedEmail.id}:`, updateError)
+                        errorsCount++
+                    }
+                } catch (error) {
+                    errorsCount++
+                    console.error(`Error processing email ${trackedEmail.id}:`, error.message || error)
+                }
+            }))
+        }
+
+        console.log(`Done. Responses detected: ${responsesDetected}, Errors: ${errorsCount}`)
 
         return res.status(200).json({
             success: true,
             responsesDetected,
             processed: unansweredEmails.length,
+            conversationsChecked: Object.keys(combinedSentByConversation).length,
+            employeesChecked: employeeEmails.length,
             errors: errorsCount,
-            skipped: skippedCount,
             mode: cronSecret ? 'background' : 'interactive'
         })
     } catch (error) {
