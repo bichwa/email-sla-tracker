@@ -12,8 +12,8 @@ const supabase = createClient(
 )
 
 export default async function handler(req, res) {
-    // Only allow POST requests
-    if (req.method !== 'POST') {
+    // Accept both GET (Vercel cron) and POST (manual trigger)
+    if (req.method !== 'POST' && req.method !== 'GET') {
         return res.status(405).json({ error: 'Method not allowed' })
     }
 
@@ -22,7 +22,9 @@ export default async function handler(req, res) {
         let { accessToken } = body
 
         // FOOLPROOF SECRET FETCHING
-        const cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret']
+        // Vercel cron sends CRON_SECRET as 'Authorization: Bearer <secret>'
+        const authHeader = req.headers['authorization'] || ''
+        const cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret'] || authHeader
 
         // Clean the secrets for robust matching
         const cleanProvided = (cronSecret || '').replace(/^Bearer\s+/i, '').trim()

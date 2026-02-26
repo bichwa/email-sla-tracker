@@ -10,7 +10,7 @@ export const FiltersBar = ({ onFilterChange, employees }) => {
         toDate: '',
     })
 
-    const [showFilters, setShowFilters] = useState(false)
+    const [showFilters, setShowFilters] = useState(true)
 
     const handleFilterChange = (key, value) => {
         const newFilters = { ...filters, [key]: value }
