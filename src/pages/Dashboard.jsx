@@ -4,6 +4,7 @@ import { MetricsCards } from '../components/dashboard/MetricsCards'
 import { EmailsTable } from '../components/dashboard/EmailsTable'
 import { FiltersBar } from '../components/dashboard/FiltersBar'
 import { TeamLoadChart } from '../components/dashboard/TeamLoadChart'
+import { DashboardKey } from '../components/dashboard/DashboardKey'
 import { useEmailList, useSLAMetrics, useTeamPerformance, useEmployees } from '../hooks/useQueries'
 import { RefreshCw } from 'lucide-react'
 
@@ -60,10 +61,12 @@ export const Dashboard = () => {
                         title={getTableTitle()}
                     />
                 </div>
-                <div>
+                <div className="h-full">
                     <TeamLoadChart teamData={teamData} loading={teamLoading} />
                 </div>
             </div>
+
+            <DashboardKey />
         </DashboardLayout>
     )
 }

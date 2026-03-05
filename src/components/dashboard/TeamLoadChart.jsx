@@ -25,30 +25,41 @@ export const TeamLoadChart = ({ teamData, loading }) => {
 
     const chartData = teamData.map(member => ({
         name: member.name,
-        Total: member.total_received || 0,
         Responded: member.total_responded || 0,
         Unanswered: member.unanswered || 0,
     }))
 
     return (
-        <div className="card">
+        <div className="card h-full">
             <h2 className="text-lg font-semibold text-gray-900 mb-6">Team Load Distribution</h2>
             <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="name" stroke="#6b7280" fontSize={12} />
-                    <YAxis stroke="#6b7280" fontSize={12} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                    <XAxis
+                        dataKey="name"
+                        stroke="#6b7280"
+                        fontSize={10}
+                        tickLine={false}
+                        axisLine={false}
+                    />
+                    <YAxis
+                        stroke="#6b7280"
+                        fontSize={10}
+                        tickLine={false}
+                        axisLine={false}
+                    />
                     <Tooltip
+                        cursor={{ fill: '#f3f4f6' }}
                         contentStyle={{
                             backgroundColor: '#fff',
                             border: '1px solid #e5e7eb',
                             borderRadius: '0.5rem',
-                            boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1)',
+                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
                         }}
                     />
-                    <Legend />
-                    <Bar dataKey="Responded" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Unanswered" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    <Legend iconType="circle" wrapperStyle={{ paddingTop: '20px' }} />
+                    <Bar name="Answered" dataKey="Responded" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
+                    <Bar name="Unanswered" dataKey="Unanswered" stackId="a" fill="#ef4444" radius={[4, 4, 0, 0]} />
                 </BarChart>
             </ResponsiveContainer>
         </div>

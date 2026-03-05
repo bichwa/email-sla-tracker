@@ -34,7 +34,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             value: metrics?.unansweredEmails || 0,
             icon: Mail,
             color: 'primary',
-            description: 'Awaiting response',
+            description: 'Emails waiting for a first response',
             isClickable: true,
             cursor: 'cursor-pointer hover:bg-blue-50'
         },
@@ -43,7 +43,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             value: metrics?.answeredEmails || 0,
             icon: CheckCircle,
             color: 'success',
-            description: 'Responses sent',
+            description: 'Responses sent to clients today',
             isClickable: true,
             cursor: ' cursor-pointer hover:bg-green-50'
         },
@@ -52,7 +52,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             value: metrics?.breachedEmails || 0,
             icon: AlertTriangle,
             color: 'danger',
-            description: 'Beyond 15 minutes',
+            description: 'Missed 15-minute target',
             isClickable: true,
             cursor: 'cursor-pointer hover:bg-red-50'
         },
@@ -61,14 +61,14 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             value: `${metrics?.avgResponseTime || 0}m`,
             icon: Clock,
             color: 'warning',
-            description: 'Today\'s average',
+            description: 'Average time to first reply',
         },
         {
             title: 'SLA Compliance',
             value: `${metrics?.slaCompliance || 100}%`,
             icon: CheckCircle,
             color: 'success',
-            description: 'Within SLA target',
+            description: '% of total emails on time',
         },
     ]
 
