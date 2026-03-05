@@ -43,7 +43,7 @@ export const DashboardKey = () => {
         <div className="card mt-6">
             <div className="flex items-center gap-2 mb-4 border-b border-gray-100 pb-4">
                 <Info className="w-5 h-5 text-gray-500" />
-                <h2 className="text-lg font-semibold text-gray-900">Metrics Glossary (Management Key)</h2>
+                <h2 className="text-lg font-semibold text-gray-900">Metrics Glossary</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {definitions.map((def) => {
