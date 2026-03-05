@@ -20,7 +20,7 @@ const queryClient = new QueryClient({
 })
 
 function App() {
-  console.log('App mounting - Version 2.2 - Reports Feature Enabled')
+  console.log('App mounting - Version 2.3 - Reports Feature Enabled')
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
