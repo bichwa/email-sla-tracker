@@ -32,7 +32,7 @@ export const DashboardKey = () => {
         },
         {
             title: 'Avg Response Time',
-            description: 'Average time taken for the first staff response to reach the client.',
+            description: 'The average time taken to respond to emails received in the last 24 hours.',
             icon: Clock,
             color: 'text-yellow-600',
             bgColor: 'bg-yellow-50'

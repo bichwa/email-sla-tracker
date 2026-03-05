@@ -106,7 +106,16 @@ export const useSLAMetrics = (filters = {}) => {
                 .eq('has_response', true)
                 .not('response_time_minutes', 'is', null)
 
-            if (filters.fromDate) responseTimeQuery = responseTimeQuery.gte('received_at', filters.fromDate)
+            if (filters.fromDate) {
+                responseTimeQuery = responseTimeQuery.gte('received_at', filters.fromDate)
+            } else {
+                // Default: Only average emails received in the last 24 hours 
+                // to avoid skewing by historical backfills
+                const oneDayAgo = new Date()
+                oneDayAgo.setHours(oneDayAgo.getHours() - 24)
+                responseTimeQuery = responseTimeQuery.gte('received_at', oneDayAgo.toISOString())
+            }
+
             if (filters.toDate) responseTimeQuery = responseTimeQuery.lte('received_at', filters.toDate)
             if (filters.employeeEmail) responseTimeQuery = responseTimeQuery.eq('responsible_employee_email', filters.employeeEmail)
 

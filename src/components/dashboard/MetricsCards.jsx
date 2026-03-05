@@ -61,7 +61,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             value: `${metrics?.avgResponseTime || 0}m`,
             icon: Clock,
             color: 'warning',
-            description: 'Average time to first reply',
+            description: 'Rolling 24h average',
         },
         {
             title: 'SLA Compliance',
