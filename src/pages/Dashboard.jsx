@@ -11,7 +11,9 @@ import { RefreshCw } from 'lucide-react'
 export const Dashboard = () => {
     const [filters, setFilters] = useState({ hasResponse: false }) // Default to Unanswered
 
-    const { data: emails, isLoading: emailsLoading, refetch: refetchEmails } = useEmailList(filters)
+    const { data: emailData, isLoading: emailsLoading, refetch: refetchEmails } = useEmailList(filters)
+    const emails = emailData?.emails || []
+    const totalCount = emailData?.totalCount || 0
     const { data: metrics, isLoading: metricsLoading, refetch: refetchMetrics } = useSLAMetrics(filters)
     const { data: teamData, isLoading: teamLoading } = useTeamPerformance(filters)
     const { data: employees, isLoading: employeesLoading } = useEmployees()
@@ -57,6 +59,7 @@ export const Dashboard = () => {
                 <div className="lg:col-span-2">
                     <EmailsTable
                         emails={emails}
+                        totalCount={totalCount}
                         loading={emailsLoading}
                         title={getTableTitle()}
                     />

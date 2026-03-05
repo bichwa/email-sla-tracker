@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { Mail, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
 
-export const EmailsTable = ({ emails, loading, title = 'Emails' }) => {
+export const EmailsTable = ({ emails, totalCount = 0, loading, title = 'Emails' }) => {
     const [currentPage, setCurrentPage] = useState(1)
     const itemsPerPage = 10
 
     if (loading) {
+        // ... loading state logic ...
         return (
             <div className="card">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
@@ -49,11 +50,16 @@ export const EmailsTable = ({ emails, loading, title = 'Emails' }) => {
     return (
         <div className="card">
             <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-semibold text-gray-900">
-                    {title} ({emails.length})
-                </h2>
-                <span className="text-sm text-gray-500">
-                    Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, emails.length)} of {emails.length}
+                <div>
+                    <h2 className="text-lg font-semibold text-gray-900">
+                        {title}
+                    </h2>
+                    <p className="text-xs text-gray-500 mt-1">
+                        Total {totalCount.toLocaleString()} {title.toLowerCase()} tracked
+                    </p>
+                </div>
+                <span className="text-sm text-gray-500 font-medium bg-gray-50 px-3 py-1 rounded-full border border-gray-100">
+                    Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, emails.length)} of {emails.length} items
                 </span>
             </div>
 

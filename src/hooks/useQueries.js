@@ -56,10 +56,13 @@ export const useEmailList = (filters = {}) => {
             // Or just return all (the previous issue was 1000 limit *truncating* metrics, but listing 1000 emails is fine for UI usually).
             query = query.limit(200) // Safe UI limit for now
 
-            const { data, error } = await query
+            const { data, count, error } = await query.select('*', { count: 'exact' })
 
             if (error) throw error
-            return data || []
+            return {
+                emails: data || [],
+                totalCount: count || 0
+            }
         },
     })
 }
