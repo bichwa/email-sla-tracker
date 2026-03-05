@@ -43,7 +43,7 @@ export const DashboardLayout = ({ children }) => {
                                 <Mail className="w-6 h-6 text-white" />
                             </div>
                             <div>
-                                <h1 className="text-xl font-bold text-gray-900">Email SLA Tracker <span className="text-xs text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full ml-2">v2.4</span></h1>
+                                <h1 className="text-xl font-bold text-gray-900">Email SLA Tracker <span className="text-xs text-primary-600 bg-primary-50 px-2 py-0.5 rounded-full ml-2">v2.5</span></h1>
                                 <p className="text-xs text-gray-500">Solvit Limited</p>
                             </div>
                         </div>

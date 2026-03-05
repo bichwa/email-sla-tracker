@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { Mail, ExternalLink, ChevronLeft, ChevronRight } from 'lucide-react'
 
-export const EmailsTable = ({ emails, loading }) => {
+export const EmailsTable = ({ emails, loading, title = 'Emails' }) => {
     const [currentPage, setCurrentPage] = useState(1)
     const itemsPerPage = 10
 
     if (loading) {
         return (
             <div className="card">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Unanswered Emails</h2>
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">{title}</h2>
                 <div className="space-y-3">
                     {[1, 2, 3, 4, 5].map((i) => (
                         <div key={i} className="animate-pulse flex gap-4 border-b border-gray-200 pb-3">
@@ -29,8 +29,8 @@ export const EmailsTable = ({ emails, loading }) => {
         return (
             <div className="card text-center py-12">
                 <Mail className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">No Unanswered Emails</h3>
-                <p className="text-gray-600">Great job! All emails have been responded to.</p>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No {title} Found</h3>
+                <p className="text-gray-600">No emails match the current filters.</p>
             </div>
         )
     }
@@ -50,7 +50,7 @@ export const EmailsTable = ({ emails, loading }) => {
         <div className="card">
             <div className="flex items-center justify-between mb-6">
                 <h2 className="text-lg font-semibold text-gray-900">
-                    Unanswered Emails ({emails.length})
+                    {title} ({emails.length})
                 </h2>
                 <span className="text-sm text-gray-500">
                     Showing {startIndex + 1}-{Math.min(startIndex + itemsPerPage, emails.length)} of {emails.length}

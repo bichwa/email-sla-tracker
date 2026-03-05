@@ -22,6 +22,12 @@ export const Dashboard = () => {
 
     const isLoading = emailsLoading || metricsLoading || teamLoading || employeesLoading
 
+    const getTableTitle = () => {
+        if (filters.hasResponse === true) return 'Answered Emails'
+        if (filters.slaBreached === true) return 'SLA Breached Emails'
+        return 'Unanswered Emails'
+    }
+
     return (
         <DashboardLayout>
             <div className="mb-6 flex items-center justify-between">
@@ -48,7 +54,11 @@ export const Dashboard = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
                 <div className="lg:col-span-2">
-                    <EmailsTable emails={emails} loading={emailsLoading} />
+                    <EmailsTable
+                        emails={emails}
+                        loading={emailsLoading}
+                        title={getTableTitle()}
+                    />
                 </div>
                 <div>
                     <TeamLoadChart teamData={teamData} loading={teamLoading} />
