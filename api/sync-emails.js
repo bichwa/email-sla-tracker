@@ -37,10 +37,10 @@ export default async function handler(req, res) {
         }
 
         if (!accessToken) {
-            return res.status(400).json({
+            return res.status(401).json({
                 success: false,
                 error: 'Unauthorized',
-                message: 'Access token or valid cronSecret is required. You can pass it as ?cronSecret=YOUR_KEY'
+                message: 'Access token or valid cronSecret is required.'
             })
         }
 
@@ -146,8 +146,50 @@ export default async function handler(req, res) {
         return res.status(500).json({ success: false, error: 'Email sync failed', message: error.message })
     }
 }
+/**
+ * Fetch a background access token using Microsoft Client Credentials flow
+ */
+async function getBackgroundAccessToken() {
+    const tenantId = process.env.VITE_MICROSOFT_TENANT_ID
+    const clientId = process.env.VITE_MICROSOFT_CLIENT_ID
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
 
-// ... Auth function omitted ...
+    if (!tenantId || !clientId || !clientSecret) {
+        throw new Error('Missing Microsoft environment variables for background sync')
+    }
+
+    const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`
+    const bodyParams = new URLSearchParams({
+        client_id: clientId,
+        scope: 'https://graph.microsoft.com/.default',
+        client_secret: clientSecret,
+        grant_type: 'client_credentials',
+    })
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: bodyParams.toString(),
+        })
+
+        const text = await response.text()
+        let data
+        try {
+            data = JSON.parse(text)
+        } catch (e) {
+            data = { error: 'invalid_json', error_description: text }
+        }
+
+        if (!response.ok) {
+            throw new Error(`Microsoft Auth Error (${response.status}): ${data.error_description || data.error || text}`)
+        }
+
+        return data.access_token
+    } catch (error) {
+        throw new Error(`Failed to contact Microsoft Auth: ${error.message}`)
+    }
+}
 
 /**
  * Process and classify a single email
