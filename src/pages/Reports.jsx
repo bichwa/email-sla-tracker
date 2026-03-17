@@ -85,8 +85,8 @@ export const Reports = () => {
 
             return [
                 subject,
-                `"${email.sender_email}"`,
-                `"${email.recipient_email || ''}"`,
+                `"${email.from_email || ''}"`,
+                `"${email.to_email || ''}"`,
                 email.received_at,
                 email.has_response ? email.first_response_at : 'N/A',
                 email.has_response ? email.response_time_minutes : '',

@@ -59,8 +59,19 @@ export const useEmailList = (filters = {}) => {
             const { data, count, error } = await query.select('*', { count: 'exact' })
 
             if (error) throw error
+            
+            // Post-process to calculate minutes_waiting for unanswered emails if not provided
+            const processedEmails = (data || []).map(email => {
+                if (!email.has_response && !email.minutes_waiting) {
+                    const receivedAt = new Date(email.received_at);
+                    const now = new Date();
+                    email.minutes_waiting = Math.floor((now - receivedAt) / (1000 * 60));
+                }
+                return email;
+            });
+
             return {
-                emails: data || [],
+                emails: processedEmails,
                 totalCount: count || 0
             }
         },
