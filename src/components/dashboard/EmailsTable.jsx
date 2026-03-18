@@ -114,6 +114,9 @@ export const EmailsTable = ({ emails, totalCount = 0, loading, title = 'Emails' 
                                             {email.scenario === 'direct_mention' && (
                                                 <span className="badge badge-info text-xs">@mention</span>
                                             )}
+                                            {email.scenario === 'customer_service_inbox' && (
+                                                <span className="badge badge-success text-xs">CS Inbox</span>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="py-4 pr-6">
