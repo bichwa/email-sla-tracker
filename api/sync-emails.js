@@ -143,7 +143,12 @@ export default async function handler(req, res) {
         })
     } catch (error) {
         console.error('Email sync error:', error)
-        return res.status(500).json({ success: false, error: 'Email sync failed', message: error.message })
+        return res.status(500).json({ 
+            success: false, 
+            error: 'Email sync failed', 
+            message: error.message,
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        })
     }
 }
 /**
@@ -271,12 +276,23 @@ function determineScenario(email, employee, dbRules) {
         return { scenario: 'direct_mention', responsibleEmail: mentionRule.assignee_email }
     }
 
-    // 2. Check if sent to team/group email
-    const isGroupEmail = recipients.some(addr =>
-        ['team@', 'cs-team@', 'cs@solvit.co.ke', 'cs@', 'support@', 'info@'].some(p => addr.includes(p))
+    // 2. Specific CS Inbox check (Priority over general team)
+    const isToCS = recipients.some(addr => addr.includes('cs@solvit.co.ke') || addr.includes('cs@'))
+    if (isToCS) {
+        // Find CS specific rule if exists
+        const csRule = dbRules.find(r => r.rule_type === 'team_inbox' && r.rule_value.toLowerCase().includes('cs@'))
+        return { 
+            scenario: 'customer_service_inbox', 
+            responsibleEmail: csRule?.assignee_email || 'jmungasi@solvit.co.ke'
+        }
+    }
+
+    // 3. General Team Inbox check
+    const isToTeam = recipients.some(addr =>
+        ['team@', 'cs-team@', 'support@', 'info@'].some(p => addr.includes(p))
     )
 
-    if (isGroupEmail) {
+    if (isToTeam) {
         // Try DB rules for domain or keyword assignment
         for (const rule of dbRules) {
             if (rule.rule_type === 'domain' && fromEmail.includes(rule.rule_value.toLowerCase())) {

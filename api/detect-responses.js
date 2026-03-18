@@ -36,7 +36,7 @@ export default async function handler(req, res) {
         }
 
         if (!accessToken) {
-            return res.status(400).json({
+            return res.status(401).json({
                 success: false,
                 error: 'Unauthorized',
                 message: 'Access token or valid cronSecret is required.'
@@ -190,7 +190,8 @@ export default async function handler(req, res) {
             success: false,
             error: 'Response detection failed',
             message: error.message,
-            hint: 'Check Vercel logs and environment variables'
+            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+            hint: 'Check Vercel logs and environment variables (MICROSOFT_CLIENT_SECRET, CRON_SECRET)'
         })
     }
 }
