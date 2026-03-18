@@ -273,7 +273,7 @@ function determineScenario(email, employee, dbRules) {
 
     // 2. Check if sent to team/group email
     const isGroupEmail = recipients.some(addr =>
-        ['team@', 'cs-team@', 'support@', 'info@'].some(p => addr.includes(p))
+        ['team@', 'cs-team@', 'cs@solvit.co.ke', 'cs@', 'support@', 'info@'].some(p => addr.includes(p))
     )
 
     if (isGroupEmail) {

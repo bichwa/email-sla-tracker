@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { DashboardLayout } from '../components/layout/DashboardLayout'
-import { useEmailList, useSLAMetrics } from '../hooks/useQueries'
+import { useEmailList, useSLAMetrics, useEmployees } from '../hooks/useQueries'
 import { Download, Calendar, FileText, BarChart2 } from 'lucide-react'
 
 export const Reports = () => {
@@ -14,10 +14,14 @@ export const Reports = () => {
             toDate: end.toISOString().split('T')[0]
         }
     })
+    const [employeeEmail, setEmployeeEmail] = useState('')
+
+    const { data: employees } = useEmployees()
 
     const filters = {
         fromDate: dateRange.fromDate,
-        toDate: dateRange.toDate
+        toDate: dateRange.toDate,
+        employeeEmail: employeeEmail || undefined
     }
 
     const { data: emails, isLoading: emailsLoading } = useEmailList(filters)
@@ -53,8 +57,9 @@ export const Reports = () => {
             `Avg Response Time,${metrics.avgResponseTime}m`
         ]
 
+        const empName = employeeEmail ? employees?.find(e => e.email === employeeEmail)?.name?.replace(/\s+/g, '_') : 'All'
         const csvContent = [headers, ...rows].join('\n')
-        downloadCSV(csvContent, `sla-metrics-${dateRange.fromDate}-to-${dateRange.toDate}.csv`)
+        downloadCSV(csvContent, `sla-metrics-${empName}-${dateRange.fromDate}-to-${dateRange.toDate}.csv`)
     }
 
     const exportLogs = () => {
@@ -96,8 +101,9 @@ export const Reports = () => {
             ].join(',')
         })
 
+        const empName = employeeEmail ? employees?.find(e => e.email === employeeEmail)?.name?.replace(/\s+/g, '_') : 'All'
         const csvContent = [headers, ...rows].join('\n')
-        downloadCSV(csvContent, `email-logs-${dateRange.fromDate}-to-${dateRange.toDate}.csv`)
+        downloadCSV(csvContent, `email-logs-${empName}-${dateRange.fromDate}-to-${dateRange.toDate}.csv`)
     }
 
     const isLoading = emailsLoading || metricsLoading
@@ -111,30 +117,58 @@ export const Reports = () => {
                 </div>
             </div>
 
-            {/* Date Filers */}
-            <div className="card mb-8 p-6">
-                <div className="flex items-center gap-2 mb-4 text-gray-700 font-medium">
-                    <Calendar className="w-5 h-5" />
-                    <span>Date Range</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                {/* Date Filters */}
+                <div className="card p-6">
+                    <div className="flex items-center gap-2 mb-4 text-gray-700 font-medium">
+                        <Calendar className="w-5 h-5" />
+                        <span>Date Range</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm text-gray-600 mb-1">From</label>
+                            <input
+                                type="date"
+                                value={dateRange.fromDate}
+                                onChange={(e) => handleDateChange('fromDate', e.target.value)}
+                                className="input w-full"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm text-gray-600 mb-1">To</label>
+                            <input
+                                type="date"
+                                value={dateRange.toDate}
+                                onChange={(e) => handleDateChange('toDate', e.target.value)}
+                                className="input w-full"
+                            />
+                        </div>
+                    </div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-lg">
-                    <div>
-                        <label className="block text-sm text-gray-600 mb-1">From</label>
-                        <input
-                            type="date"
-                            value={dateRange.fromDate}
-                            onChange={(e) => handleDateChange('fromDate', e.target.value)}
-                            className="input w-full"
-                        />
+
+                {/* Employee Filter */}
+                <div className="card p-6">
+                    <div className="flex items-center gap-2 mb-4 text-gray-700 font-medium">
+                        <FileText className="w-5 h-5" />
+                        <span>Filter by Employee</span>
                     </div>
                     <div>
-                        <label className="block text-sm text-gray-600 mb-1">To</label>
-                        <input
-                            type="date"
-                            value={dateRange.toDate}
-                            onChange={(e) => handleDateChange('toDate', e.target.value)}
+                        <label className="block text-sm text-gray-600 mb-1">Employee (Optional)</label>
+                        <select
+                            value={employeeEmail}
+                            onChange={(e) => setEmployeeEmail(e.target.value)}
                             className="input w-full"
-                        />
+                        >
+                            <option value="">All Employees</option>
+                            {employees?.map(emp => (
+                                <option key={emp.email} value={emp.email}>
+                                    {emp.name} ({emp.email})
+                                </option>
+                            ))}
+                        </select>
+                        <p className="mt-2 text-xs text-gray-500">
+                            Leave as "All Employees" for a company-wide report.
+                        </p>
                     </div>
                 </div>
             </div>
