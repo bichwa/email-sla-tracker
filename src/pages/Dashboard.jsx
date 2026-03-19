@@ -9,7 +9,9 @@ import { useEmailList, useSLAMetrics, useTeamPerformance, useEmployees } from '.
 import { RefreshCw } from 'lucide-react'
 
 export const Dashboard = () => {
-    const [filters, setFilters] = useState({ hasResponse: false }) // Default to Unanswered
+    const [filters, setFilters] = useState({
+        hasResponse: false
+    }) // Default to Unanswered
 
     const { data: emailData, isLoading: emailsLoading, refetch: refetchEmails } = useEmailList(filters)
     const emails = emailData?.emails || []

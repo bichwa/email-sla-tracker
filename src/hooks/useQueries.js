@@ -194,15 +194,14 @@ export const useTeamPerformance = (filters = {}) => {
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
                 .eq('is_system_generated', false)
-                .limit(5000) // Increase limit to handle larger datasets for distribution
+                .limit(10000) // Fetch top 10k emails to ensure distribution is accurate
+                .order('received_at', { ascending: false })
 
             // Apply date filter
             if (filters.fromDate) {
                 query = query.gte('received_at', filters.fromDate)
             } else {
-                const thirtyDaysAgo = new Date()
-                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-                query = query.gte('received_at', thirtyDaysAgo.toISOString())
+                // Default: In history, we fetch up to the limit above to avoid total truncation
             }
 
             if (filters.toDate) {
