@@ -153,23 +153,15 @@ export const useSLAMetrics = (filters = {}) => {
 
             // Calculations
             const unansweredEmails = (totalEmails || 0) - (answeredEmails || 0)
-            const withinSLA = (answeredEmails || 0) - (breachedEmails || 0) // Approximation if we don't have exact "Answered AND Not Breached" count, but strictly:
-            // Actually 'withinSLA' usually means "Answered within time". 
-            // If 'breachedEmails' includes Unanswered breaches, then 'withinSLA' calculation:
-            // Let's rely on the concept: SLA Compliance = % of emails NOT breached.
-            // Or % of ANSWERED emails that were on time? 
-            // Usually it's (Total - Breached) / Total * 100 for overall health.
-
-            // Re-calculating proper WithinSLA (Processed on time)
-            // For dashboard display "SLA Compliance", typically: (1 - (Breached / Total)) * 100
+            const total = totalEmails || 0
+            const breached = breachedEmails || 0
+            const withinSLA = total - breached
 
             // Avg Response Time
             const avgResponseTime = responseTimes.length > 0
                 ? Math.round(responseTimes.reduce((sum, e) => sum + e.response_time_minutes, 0) / responseTimes.length)
                 : 0
 
-            const total = totalEmails || 0
-            const breached = breachedEmails || 0
 
             const slaCompliance = total > 0
                 ? Math.round(((total - breached) / total) * 100)
@@ -198,13 +190,13 @@ export const useTeamPerformance = (filters = {}) => {
         queryFn: async () => {
             let query = supabase
                 .from('tracked_emails')
-                .select('*')
+                .select('id, has_response, responsible_employee_email')
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
                 .eq('is_system_generated', false)
+                .limit(5000) // Increase limit to handle larger datasets for distribution
 
             // Apply date filter
-            // Default to "Last 30 days" if no filter, to avoid loading entire history
             if (filters.fromDate) {
                 query = query.gte('received_at', filters.fromDate)
             } else {

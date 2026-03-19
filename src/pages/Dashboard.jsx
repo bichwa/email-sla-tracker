@@ -55,21 +55,23 @@ export const Dashboard = () => {
                 employees={employees}
             />
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-                <div className="lg:col-span-2">
-                    <EmailsTable
-                        emails={emails}
-                        totalCount={totalCount}
-                        loading={emailsLoading}
-                        title={getTableTitle()}
-                    />
-                </div>
-                <div className="h-full">
-                    <TeamLoadChart teamData={teamData} loading={teamLoading} />
+            <div className="space-y-8 mb-8">
+                <EmailsTable
+                    emails={emails}
+                    totalCount={totalCount}
+                    loading={emailsLoading}
+                    title={getTableTitle()}
+                />
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2">
+                        <TeamLoadChart teamData={teamData} loading={teamLoading} />
+                    </div>
+                    <div>
+                        <DashboardKey />
+                    </div>
                 </div>
             </div>
-
-            <DashboardKey />
         </DashboardLayout>
     )
 }
