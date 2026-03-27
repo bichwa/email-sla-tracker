@@ -30,7 +30,8 @@ export const Dashboard = () => {
     const getTableTitle = () => {
         if (filters.hasResponse === true) return 'Answered Emails'
         if (filters.slaBreached === true) return 'SLA Breached Emails'
-        return 'Unanswered Emails'
+        if (filters.hasResponse === false) return 'Unanswered Emails'
+        return 'All Tracked Emails'
     }
 
     return (

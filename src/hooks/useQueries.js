@@ -62,13 +62,26 @@ export const useEmailList = (filters = {}) => {
 
             if (error) throw error
             
-            // Post-process to calculate minutes_waiting for unanswered emails if not provided
+            // Post-process to calculate minutes_waiting and real-time SLA status
             const processedEmails = (data || []).map(email => {
-                if (!email.has_response && !email.minutes_waiting) {
-                    const receivedAt = new Date(email.received_at);
-                    const now = new Date();
+                const receivedAt = new Date(email.received_at);
+                const now = new Date();
+                
+                // Calculate waiting/response time
+                if (email.has_response) {
+                    email.minutes_waiting = email.response_time_minutes || 0;
+                } else {
                     email.minutes_waiting = Math.floor((now - receivedAt) / (1000 * 60));
                 }
+
+                // Calculate real-time SLA status (default Target is 15 mins)
+                const target = 15;
+                if (email.has_response) {
+                    email.sla_breached = email.response_time_minutes > target;
+                } else {
+                    email.sla_breached = email.minutes_waiting > target;
+                }
+
                 return email;
             });
 

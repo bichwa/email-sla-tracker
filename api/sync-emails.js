@@ -88,9 +88,9 @@ export default async function handler(req, res) {
         let totalProcessed = 0
         let totalErrors = 0
 
-        // ... rest of the fetch logic ...
-        const shuffled = employees.sort(() => 0.5 - Math.random())
-        const selectedEmployees = shuffled.slice(0, 5)
+        // Process ALL active employees (v2.9+)
+        // Reduced from random 5 to all to ensure individual inboxes are caught
+        const selectedEmployees = employees
 
         const allEmailsToProcess = []
 
@@ -101,12 +101,11 @@ export default async function handler(req, res) {
                 const yesterday = new Date()
                 yesterday.setDate(yesterday.getDate() - 1)
 
-                const emails = await graphClient
                     .api(`/users/${employee.email}/messages`)
                     .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments,conversationId,internetMessageId')
                     .filter(`receivedDateTime ge ${yesterday.toISOString()}`)
                     .orderby('receivedDateTime desc')
-                    .top(20)
+                    .top(50) // Increased from 20 to 50
                     .get()
 
                 if (emails.value) {
