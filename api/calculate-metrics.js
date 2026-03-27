@@ -120,7 +120,7 @@ export default async function handler(req, res) {
                     min_response_time_minutes: minResponseTime,
                     max_response_time_minutes: maxResponseTime,
                     median_response_time_minutes: medianResponseTime,
-                    sla_target_minutes: 15,
+                    sla_target_minutes: 30,
                     sla_compliant_count: slaCompliant,
                     sla_breached_count: slaBreached,
                     sla_compliance_rate: parseFloat(slaComplianceRate),

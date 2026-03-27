@@ -200,7 +200,7 @@ async function getBackgroundAccessToken() {
  */
 async function processEmail(email, employee, classificationRules, assignmentRules) {
     const globalMessageId = email.internetMessageId || email.id
-    const fromEmail = email.from?.emailAddress?.address || 'unknown'
+    const fromEmail = email.from?.emailAddress?.address || email.sender?.emailAddress?.address || 'unknown'
 
     // 1. DEDUPLICATION (v2.9 Enhanced)
     // First check by internetMessageId
@@ -227,10 +227,13 @@ async function processEmail(email, employee, classificationRules, assignmentRule
     if (existingByContent) return
 
     // 2. CLASSIFICATION & ASSIGNMENT
+    const isIncoming = fromEmail.toLowerCase() !== employee.email.toLowerCase()
+    
+    // 3. CLASSIFICATION & ASSIGNMENT
     const classification = classifyEmail(email, classificationRules)
     const { scenario, responsibleEmail } = determineScenario(email, employee, assignmentRules)
 
-    const fromName = email.from?.emailAddress?.name || ''
+    const fromName = email.from?.emailAddress?.name || email.sender?.emailAddress?.name || ''
     const toEmail = email.toRecipients?.[0]?.emailAddress?.address || employee.email
     const ccEmails = email.ccRecipients?.map(r => r.emailAddress.address) || []
 
@@ -245,7 +248,7 @@ async function processEmail(email, employee, classificationRules, assignmentRule
         cc_emails: ccEmails,
         body_preview: email.bodyPreview,
         has_attachments: email.hasAttachments || false,
-        is_incoming: true,
+        is_incoming: isIncoming,
         is_client_email: classification.isClientEmail,
         is_system_generated: classification.isSystemGenerated,
         is_solver_email: classification.isSolverEmail,
@@ -254,6 +257,10 @@ async function processEmail(email, employee, classificationRules, assignmentRule
         responsible_employee_email: responsibleEmail,
         received_at: email.receivedDateTime,
         is_processed: true,
+        has_response: !isIncoming, // Outgoing are answered by default
+        responded_at: !isIncoming ? email.receivedDateTime : null,
+        first_responder_email: !isIncoming ? fromEmail : null,
+        response_time_minutes: !isIncoming ? 0 : null
     }])
 }
 
@@ -319,8 +326,11 @@ function classifyEmail(email, rules) {
     const fromEmail = email.from?.emailAddress?.address?.toLowerCase() || ''
 
     // Hardcoded system keywords fallback
-    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable']
-    if (systemKeywords.some(k => subject.includes(k) || body.includes(k))) {
+    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable', 'notification']
+    const systemDomains = ['jira.com', 'atlassian.net', 'tldv.io', 'render.com', 'africastalking.com', 'microsoft.com', 'azure.com', 'github.com']
+    
+    if (systemKeywords.some(k => subject.includes(k) || body.includes(k)) || 
+        systemDomains.some(d => fromEmail.includes(d))) {
         return { isClientEmail: false, isSystemGenerated: true, isSolverEmail: false, isInternal: false }
     }
 

@@ -74,8 +74,8 @@ export const useEmailList = (filters = {}) => {
                     email.minutes_waiting = Math.floor((now - receivedAt) / (1000 * 60));
                 }
 
-                // Calculate real-time SLA status (default Target is 15 mins)
-                const target = 15;
+                // Calculate real-time SLA status (SLA is 30 mins per USER)
+                const target = 30;
                 if (email.has_response) {
                     email.sla_breached = email.response_time_minutes > target;
                 } else {

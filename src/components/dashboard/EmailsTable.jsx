@@ -72,7 +72,8 @@ export const EmailsTable = ({ emails, totalCount = 0, loading, title = 'Emails' 
                             <th className="pb-3 pr-6">To</th>
                             <th className="pb-3 pr-6">Responsible</th>
                             <th className="pb-3 pr-6">Received</th>
-                            <th className="pb-3 pr-6">Waiting</th>
+                            <th className="pb-3 pr-6">Responded</th>
+                            <th className="pb-3 pr-6">Waiting/Resp</th>
                             <th className="pb-3">Status</th>
                         </tr>
                     </thead>
@@ -128,6 +129,16 @@ export const EmailsTable = ({ emails, totalCount = 0, loading, title = 'Emails' 
                                                 hour: 'numeric',
                                                 minute: '2-digit',
                                             })}
+                                        </div>
+                                    </td>
+                                    <td className="py-4 pr-6">
+                                        <div className="text-sm text-gray-600">
+                                            {email.responded_at ? new Date(email.responded_at).toLocaleString('en-US', {
+                                                month: 'short',
+                                                day: 'numeric',
+                                                hour: 'numeric',
+                                                minute: '2-digit',
+                                            }) : '-'}
                                         </div>
                                     </td>
                                     <td className="py-4 pr-6">
