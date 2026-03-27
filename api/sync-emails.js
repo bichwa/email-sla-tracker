@@ -49,7 +49,7 @@ export default async function handler(req, res) {
             supabase.from('tracked_emails').select('internet_message_id, subject, from_email, received_at').order('received_at', { ascending: false }).limit(1000)
         ]);
 
-        if (empRes.error) throw empError;
+        if (empRes.error) throw empRes.error;
         const employees = empRes.data;
         const classificationRules = rulesRes.data || [];
         const assignmentRules = assignRes.data || [];
