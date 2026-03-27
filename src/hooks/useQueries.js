@@ -21,7 +21,8 @@ export const useEmailList = (filters = {}) => {
 
             // Apply filters
             if (filters.employeeEmail) {
-                query = query.eq('responsible_employee_email', filters.employeeEmail)
+                // Filter for either responsible OR responder to catch all activity
+                query = query.or(`responsible_employee_email.eq.${filters.employeeEmail},first_responder_email.eq.${filters.employeeEmail}`)
             }
 
             if (filters.scenario) {
@@ -42,11 +43,12 @@ export const useEmailList = (filters = {}) => {
             }
 
             if (filters.fromDate) {
-                query = query.gte('received_at', filters.fromDate)
+                query = query.gte('received_at', `${filters.fromDate}T00:00:00`)
             }
 
             if (filters.toDate) {
-                query = query.lte('received_at', filters.toDate)
+                // Make toDate inclusive by adding the end-of-day timestamp
+                query = query.lte('received_at', `${filters.toDate}T23:59:59`)
             }
 
             // Limit to avoid browser crash on huge datasets if no filters
@@ -94,9 +96,11 @@ export const useSLAMetrics = (filters = {}) => {
                     .eq('is_incoming', true)
                     .eq('is_system_generated', false)
 
-                if (filters.fromDate) q = q.gte('received_at', filters.fromDate)
-                if (filters.toDate) q = q.lte('received_at', filters.toDate)
-                if (filters.employeeEmail) q = q.eq('responsible_employee_email', filters.employeeEmail)
+                if (filters.fromDate) q = q.gte('received_at', `${filters.fromDate}T00:00:00`)
+                if (filters.toDate) q = q.lte('received_at', `${filters.toDate}T23:59:59`)
+                if (filters.employeeEmail) {
+                    q = q.or(`responsible_employee_email.eq.${filters.employeeEmail},first_responder_email.eq.${filters.employeeEmail}`)
+                }
 
                 return q
             }
@@ -130,8 +134,10 @@ export const useSLAMetrics = (filters = {}) => {
                 responseTimeQuery = responseTimeQuery.gte('received_at', oneDayAgo.toISOString())
             }
 
-            if (filters.toDate) responseTimeQuery = responseTimeQuery.lte('received_at', filters.toDate)
-            if (filters.employeeEmail) responseTimeQuery = responseTimeQuery.eq('responsible_employee_email', filters.employeeEmail)
+            if (filters.toDate) responseTimeQuery = responseTimeQuery.lte('received_at', `${filters.toDate}T23:59:59`)
+            if (filters.employeeEmail) {
+                responseTimeQuery = responseTimeQuery.or(`responsible_employee_email.eq.${filters.employeeEmail},first_responder_email.eq.${filters.employeeEmail}`)
+            }
 
             // Run in parallel
             const [
@@ -190,7 +196,7 @@ export const useTeamPerformance = (filters = {}) => {
         queryFn: async () => {
             let query = supabase
                 .from('tracked_emails')
-                .select('id, has_response, responsible_employee_email')
+                .select('id, has_response, responsible_employee_email, first_responder_email')
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
                 .eq('is_system_generated', false)
@@ -199,13 +205,11 @@ export const useTeamPerformance = (filters = {}) => {
 
             // Apply date filter
             if (filters.fromDate) {
-                query = query.gte('received_at', filters.fromDate)
-            } else {
-                // Default: In history, we fetch up to the limit above to avoid total truncation
+                query = query.gte('received_at', `${filters.fromDate}T00:00:00`)
             }
 
             if (filters.toDate) {
-                query = query.lte('received_at', filters.toDate)
+                query = query.lte('received_at', `${filters.toDate}T23:59:59`)
             }
 
             const { data, error } = await query
@@ -215,26 +219,37 @@ export const useTeamPerformance = (filters = {}) => {
             const stats = {}
 
             data.forEach(email => {
+                // For received/assigned count, use responsible
                 const responsible = email.responsible_employee_email || 'Unassigned'
+                // For response count, attribute to the ACTUAL responder if available
+                const responder = email.first_responder_email || responsible
 
-                // Simplify email to name for display (e.g. "vmusyoka@..." -> "vmusyoka")
-                const name = responsible.split('@')[0]
+                const respName = responsible.split('@')[0]
+                const responderName = responder.split('@')[0]
 
-                if (!stats[name]) {
-                    stats[name] = {
-                        name: name,
+                if (!stats[respName]) {
+                    stats[respName] = {
+                        name: respName,
                         total_received: 0,
-                        total_responded: 0,
-                        unanswered: 0,
+                        total_responded: 0, // This will be responses they WERE ASSIGNED to? 
+                        // No, let's keep name/resp separate if we want credit.
+                        // Actually, the team chart shows distribution of workload.
                     }
                 }
+                
+                // Add to received for the responsible person
+                stats[respName].total_received++
 
-                stats[name].total_received++
-
+                // Add to responded for the ACTUAL responder
                 if (email.has_response) {
-                    stats[name].total_responded++
-                } else {
-                    stats[name].unanswered++
+                    if (!stats[responderName]) {
+                        stats[responderName] = {
+                            name: responderName,
+                            total_received: 0,
+                            total_responded: 0
+                        }
+                    }
+                    stats[responderName].total_responded++
                 }
             })
 

@@ -24,7 +24,8 @@ export const Reports = () => {
         employeeEmail: employeeEmail || undefined
     }
 
-    const { data: emails, isLoading: emailsLoading } = useEmailList(filters)
+    const { data: emailData, isLoading: emailsLoading } = useEmailList(filters)
+    const emails = emailData?.emails || []
     const { data: metrics, isLoading: metricsLoading } = useSLAMetrics(filters)
 
     const handleDateChange = (key, value) => {
@@ -77,27 +78,19 @@ export const Reports = () => {
             'Conversation ID'
         ].join(',')
 
-        const rows = emails.map(email => {
-            const subject = `"${(email.subject || '').replace(/"/g, '""')}"`
-            const from = `"${(email.from_email || '').replace(/"/g, '""')}"`
-            const to = `"${(email.to_email || '').replace(/"/g, '""')}"` // Assuming column name, verify?
-            // Actually 'to_recipients' in Graph, but DB col might be 'to_email' or similar?
-            // Checking useQueries or DB schema... 'to_recipients' usually array.
-            // Let's stick to standard fields we know exist or are common. 
-            // 'sender_email', 'recipient_email'? 
-            // In 'tracked_emails': 'sender_email', 'recipient_email' (maybe 'to_email'?), 'received_at'
-            // Let's use safe access.
+        const escape = (val) => `"${(val || '').toString().replace(/"/g, '""')}"`
 
+        const rows = emails.map(email => {
             return [
-                subject,
-                `"${email.from_email || ''}"`,
-                `"${email.to_email || ''}"`,
-                email.received_at,
-                email.has_response ? email.first_response_at : 'N/A',
+                escape(email.subject),
+                escape(email.from_email),
+                escape(email.to_email),
+                escape(email.received_at),
+                email.has_response ? escape(email.first_response_at) : 'N/A',
                 email.has_response ? email.response_time_minutes : '',
                 email.sla_breached ? 'Yes' : 'No',
-                email.responsible_employee_email,
-                email.conversation_id
+                escape(email.responsible_employee_email),
+                escape(email.conversation_id)
             ].join(',')
         })
 
