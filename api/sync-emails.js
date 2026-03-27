@@ -101,7 +101,7 @@ export default async function handler(req, res) {
                 const yesterday = new Date()
                 yesterday.setDate(yesterday.getDate() - 1)
                 const emails = await graphClient
-                    .api(`/users/${employee.email}/messages`)
+                    .api(`/users/${employee.email}/mailFolders/inbox/messages`)
                     .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments,conversationId,internetMessageId')
                     .orderby('receivedDateTime desc')
                     .top(100)

@@ -102,12 +102,13 @@ export const EmailsTable = ({ emails, totalCount = 0, loading, title = 'Emails' 
                                     </td>
                                     <td className="py-4 pr-6">
                                         <div className="text-sm text-gray-900">
-                                            {email.from_name === 'unknown' && email.from_email === 'unknown' 
+                                            {(!email.from_name || email.from_name.toLowerCase() === 'unknown') && 
+                                             (!email.from_email || email.from_email.toLowerCase() === 'unknown')
                                                 ? '(System / Internal)' 
                                                 : (email.from_name || email.from_email)}
                                         </div>
                                         <div className="text-xs text-gray-500">
-                                            {email.from_email === 'unknown' ? '' : email.from_email}
+                                            {(!email.from_email || email.from_email.toLowerCase() === 'unknown') ? '' : email.from_email}
                                         </div>
                                     </td>
                                     <td className="py-4 pr-6">
