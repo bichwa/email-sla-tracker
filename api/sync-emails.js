@@ -1,6 +1,6 @@
 /**
  * Email sync serverless function
- * Fetches emails from Microsoft Graph API and stores them in Supabase
+ * High Performance Bulk Version (Prevent Timeouts)
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -8,11 +8,13 @@ import { Client } from '@microsoft/microsoft-graph-client'
 
 const supabase = createClient(
     process.env.VITE_SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY // Use service key for server-side
+    process.env.SUPABASE_SERVICE_KEY
 )
 
 export default async function handler(req, res) {
-    // Accept both GET (Vercel cron) and POST (manual trigger)
+    const startTime = Date.now();
+    const MAX_EXECUTION_TIME = 25000; // 25 seconds safety margin
+
     if (req.method !== 'POST' && req.method !== 'GET') {
         return res.status(405).json({ error: 'Method not allowed' })
     }
@@ -21,85 +23,52 @@ export default async function handler(req, res) {
         const body = req.body || {}
         let { accessToken } = body
 
-        // FOOLPROOF SECRET FETCHING
-        // Vercel cron sends CRON_SECRET as 'Authorization: Bearer <secret>'
         const authHeader = req.headers['authorization'] || ''
         const cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret'] || authHeader
 
-        // Clean the secrets for robust matching
         const cleanProvided = (cronSecret || '').replace(/^Bearer\s+/i, '').trim()
         const cleanStored = (process.env.CRON_SECRET || '').replace(/^Bearer\s+/i, '').trim()
 
-        // Verification: If cronSecret is provided, try to get a system token
         if (cleanProvided && cleanProvided === cleanStored && cleanStored !== '') {
-            console.log('Valid CRON_SECRET provided. Fetching background token...')
             accessToken = await getBackgroundAccessToken()
         }
 
         if (!accessToken) {
-            return res.status(401).json({
-                success: false,
-                error: 'Unauthorized',
-                message: 'Access token or valid cronSecret is required.'
-            })
+            return res.status(401).json({ success: false, error: 'Unauthorized' })
         }
 
-        // Initialize Graph client
         const graphClient = Client.init({
-            authProvider: (done) => {
-                done(null, accessToken)
-            },
+            authProvider: (done) => done(null, accessToken),
         })
 
-        // Get active employees
-        const { data: employees, error: empError } = await supabase
-            .from('employees')
-            .select('*')
-            .eq('is_active', true)
-            .eq('is_client_facing', true)
+        // 1. Fetch needed metadata in parallel
+        const [empRes, rulesRes, assignRes, existingRes] = await Promise.all([
+            supabase.from('employees').select('*').eq('is_active', true).eq('is_client_facing', true),
+            supabase.from('email_classification_rules').select('*').eq('is_active', true).order('priority'),
+            supabase.from('assignment_rules').select('*').eq('is_active', true).order('priority'),
+            supabase.from('tracked_emails').select('internet_message_id, subject, from_email, received_at').order('received_at', { ascending: false }).limit(1000)
+        ]);
 
-        if (empError) {
-            console.error('Error fetching employees:', empError)
-            return res.status(500).json({ error: 'Failed to fetch employees' })
-        }
+        if (empRes.error) throw empError;
+        const employees = empRes.data;
+        const classificationRules = rulesRes.data || [];
+        const assignmentRules = assignRes.data || [];
+        const existingEmails = existingRes.data || [];
 
-        // Get classification rules
-        const { data: classificationRules, error: rulesError } = await supabase
-            .from('email_classification_rules')
-            .select('*')
-            .eq('is_active', true)
-            .order('priority')
-
-        if (rulesError) {
-            console.error('Error fetching classification rules:', rulesError)
-        }
-
-        // Get assignment rules (v2.9)
-        const { data: assignmentRules, error: assignError } = await supabase
-            .from('assignment_rules')
-            .select('*')
-            .eq('is_active', true)
-            .order('priority')
-
-        if (assignError) {
-            console.warn('Could not fetch assignment_rules, falling back to hardcoded logic:', assignError.message)
-        }
+        // Map existing for fast lookup
+        const existingIds = new Set(existingEmails.map(e => e.internet_message_id));
+        const existingContent = new Set(existingEmails.map(e => `${e.subject}|${e.from_email}|${e.received_at}`));
 
         let totalProcessed = 0
         let totalErrors = 0
+        const allEmailsToInsert = []
 
-        // Process ALL active employees (v2.9+)
-        // Reduced from random 5 to all to ensure individual inboxes are caught
-        const selectedEmployees = employees
+        // 2. Fetch emails from Graph (Parallel)
+        await Promise.all(employees.map(async (employee) => {
+            // Safety check: Don't start new fetches if we are running out of time
+            if (Date.now() - startTime > 15000) return; 
 
-        const allEmailsToProcess = []
-
-        console.log(`Processing ${selectedEmployees.length} randomly selected employees (out of ${employees.length})...`)
-
-        await Promise.all(selectedEmployees.map(async (employee) => {
             try {
-                const yesterday = new Date()
-                yesterday.setDate(yesterday.getDate() - 1)
                 const emails = await graphClient
                     .api(`/users/${employee.email}/mailFolders/inbox/messages`)
                     .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments,conversationId,internetMessageId')
@@ -108,59 +77,92 @@ export default async function handler(req, res) {
                     .get()
 
                 if (emails.value) {
-                    emails.value.forEach(e => {
-                        allEmailsToProcess.push({ email: e, employee })
-                    })
+                    for (const email of emails.value) {
+                        const globalMessageId = email.internetMessageId || email.id
+                        const fromEmail = (email.from?.emailAddress?.address || email.sender?.emailAddress?.address || 'unknown').toLowerCase()
+                        const contentKey = `${email.subject}|${fromEmail}|${email.receivedDateTime}`;
+
+                        // Skip if exists
+                        if (existingIds.has(globalMessageId) || existingContent.has(contentKey)) continue;
+
+                        // Classification & Assignment
+                        const isIncoming = fromEmail !== employee.email.toLowerCase()
+                        const classification = classifyEmail(email, classificationRules)
+                        const { scenario, responsibleEmail } = determineScenario(email, employee, assignmentRules)
+
+                        const fromName = email.from?.emailAddress?.name || email.sender?.emailAddress?.name || ''
+                        const toEmail = email.toRecipients?.[0]?.emailAddress?.address || employee.email
+                        const ccEmails = email.ccRecipients?.map(r => r.emailAddress.address) || []
+
+                        allEmailsToInsert.push({
+                            message_id: email.id,
+                            conversation_id: email.conversationId,
+                            internet_message_id: globalMessageId,
+                            subject: email.subject || null,
+                            from_email: fromEmail,
+                            from_name: fromName,
+                            to_email: toEmail,
+                            cc_emails: ccEmails,
+                            body_preview: email.bodyPreview,
+                            has_attachments: email.hasAttachments || false,
+                            is_incoming: isIncoming,
+                            is_client_email: classification.isClientEmail,
+                            is_system_generated: classification.isSystemGenerated,
+                            is_solver_email: classification.isSolverEmail,
+                            is_internal: classification.isInternal,
+                            scenario,
+                            responsible_employee_email: responsibleEmail,
+                            received_at: email.receivedDateTime,
+                            is_processed: true,
+                            has_response: !isIncoming,
+                            responded_at: !isIncoming ? email.receivedDateTime : null,
+                            first_responder_email: !isIncoming ? fromEmail : null,
+                            response_time_minutes: !isIncoming ? 0 : null
+                        })
+
+                        // Track in-memory to prevent duplicates within the same sync pulse
+                        existingIds.add(globalMessageId);
+                        existingContent.add(contentKey);
+                    }
                 }
             } catch (error) {
-                console.error(`Error fetching emails for ${employee.email}:`, error)
+                console.error(`Error fetching for ${employee.email}:`, error)
                 totalErrors++
             }
         }))
 
-        // Batch processing
-        const BATCH_SIZE = 10
-        for (let i = 0; i < allEmailsToProcess.length; i += BATCH_SIZE) {
-            const batch = allEmailsToProcess.slice(i, i + BATCH_SIZE)
-            await Promise.all(batch.map(async ({ email, employee }) => {
-                try {
-                    await processEmail(email, employee, classificationRules, assignmentRules || [])
-                    totalProcessed++
-                } catch (procError) {
-                    console.error(`Error processing email ${email.id}:`, procError)
-                    totalErrors++
+        // 3. Bulk Insert (Max 500 at a time to be safe)
+        if (allEmailsToInsert.length > 0) {
+            const BATCH_SIZE = 500;
+            for (let i = 0; i < allEmailsToInsert.length; i += BATCH_SIZE) {
+                const batch = allEmailsToInsert.slice(i, i + BATCH_SIZE);
+                const { error: insertError } = await supabase.from('tracked_emails').insert(batch);
+                if (insertError) {
+                    console.error('Bulk insert error:', insertError);
+                    totalErrors += batch.length;
+                } else {
+                    totalProcessed += batch.length;
                 }
-            }))
+            }
         }
 
         return res.status(200).json({
             success: true,
             processed: totalProcessed,
             errors: totalErrors,
-            mode: cronSecret ? 'background' : 'interactive'
+            duration: `${Date.now() - startTime}ms`
         })
+
     } catch (error) {
-        console.error('Email sync error:', error)
-        return res.status(500).json({ 
-            success: false, 
-            error: 'Email sync failed', 
-            message: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-        })
+        console.error('Sync error:', error)
+        return res.status(500).json({ success: false, error: error.message })
     }
 }
-/**
- * Fetch a background access token using Microsoft Client Credentials flow
- */
+
 async function getBackgroundAccessToken() {
     const tenantId = process.env.VITE_MICROSOFT_TENANT_ID
     const clientId = process.env.VITE_MICROSOFT_CLIENT_ID
     const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
-
-    if (!tenantId || !clientId || !clientSecret) {
-        throw new Error('Missing Microsoft environment variables for background sync')
-    }
-
     const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`
     const bodyParams = new URLSearchParams({
         client_id: clientId,
@@ -168,168 +170,49 @@ async function getBackgroundAccessToken() {
         client_secret: clientSecret,
         grant_type: 'client_credentials',
     })
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: bodyParams.toString(),
-        })
-
-        const text = await response.text()
-        let data
-        try {
-            data = JSON.parse(text)
-        } catch (e) {
-            data = { error: 'invalid_json', error_description: text }
-        }
-
-        if (!response.ok) {
-            throw new Error(`Microsoft Auth Error (${response.status}): ${data.error_description || data.error || text}`)
-        }
-
-        return data.access_token
-    } catch (error) {
-        throw new Error(`Failed to contact Microsoft Auth: ${error.message}`)
-    }
+    const response = await fetch(url, { method: 'POST', body: bodyParams })
+    const data = await response.json()
+    return data.access_token
 }
 
-/**
- * Process and classify a single email
- */
-async function processEmail(email, employee, classificationRules, assignmentRules) {
-    const globalMessageId = email.internetMessageId || email.id
-    const fromEmail = email.from?.emailAddress?.address || email.sender?.emailAddress?.address || 'unknown'
-
-    // 1. DEDUPLICATION (v2.9 Enhanced)
-    // First check by internetMessageId
-    const { data: existingById } = await supabase
-        .from('tracked_emails')
-        .select('id')
-        .eq('internet_message_id', globalMessageId)
-        .limit(1)
-        .maybeSingle()
-
-    if (existingById) return
-
-    // SECOND STAGE: Content-based dedup (Subject + From + Date)
-    // This catches emails tracked from multiple mailboxes where internetMessageId might not match
-    const { data: existingByContent } = await supabase
-        .from('tracked_emails')
-        .select('id')
-        .eq('subject', email.subject)
-        .eq('from_email', fromEmail)
-        .eq('received_at', email.receivedDateTime)
-        .limit(1)
-        .maybeSingle()
-
-    if (existingByContent) return
-
-    // 2. CLASSIFICATION & ASSIGNMENT
-    const isIncoming = fromEmail.toLowerCase() !== employee.email.toLowerCase()
-    
-    // 3. CLASSIFICATION & ASSIGNMENT
-    const classification = classifyEmail(email, classificationRules)
-    const { scenario, responsibleEmail } = determineScenario(email, employee, assignmentRules)
-
-    const fromName = email.from?.emailAddress?.name || email.sender?.emailAddress?.name || ''
-    const toEmail = email.toRecipients?.[0]?.emailAddress?.address || employee.email
-    const ccEmails = email.ccRecipients?.map(r => r.emailAddress.address) || []
-
-    await supabase.from('tracked_emails').insert([{
-        message_id: email.id,
-        conversation_id: email.conversationId,
-        internet_message_id: globalMessageId,
-        subject: email.subject || null,
-        from_email: fromEmail,
-        from_name: fromName,
-        to_email: toEmail,
-        cc_emails: ccEmails,
-        body_preview: email.bodyPreview,
-        has_attachments: email.hasAttachments || false,
-        is_incoming: isIncoming,
-        is_client_email: classification.isClientEmail,
-        is_system_generated: classification.isSystemGenerated,
-        is_solver_email: classification.isSolverEmail,
-        is_internal: classification.isInternal,
-        scenario,
-        responsible_employee_email: responsibleEmail,
-        received_at: email.receivedDateTime,
-        is_processed: true,
-        has_response: !isIncoming, // Outgoing are answered by default
-        responded_at: !isIncoming ? email.receivedDateTime : null,
-        first_responder_email: !isIncoming ? fromEmail : null,
-        response_time_minutes: !isIncoming ? 0 : null
-    }])
-}
-
-/**
- * Enhanced assignment engine using DB rules
- */
 function determineScenario(email, employee, dbRules) {
     const recipients = [...(email.toRecipients || []), ...(email.ccRecipients || [])]
         .map(r => r.emailAddress?.address?.toLowerCase() || '')
-
     const body = email.bodyPreview?.toLowerCase() || ''
     const subject = email.subject?.toLowerCase() || ''
     const fromEmail = email.from?.emailAddress?.address?.toLowerCase() || ''
 
-    // 1. Priority: MENTIONS (Keyword match in body for "@Name" or just "Name")
-    // Scan DB rules for 'mention' type
     const mentionRule = dbRules.find(r => r.rule_type === 'mention' && body.includes(r.rule_value.toLowerCase()))
-    if (mentionRule) {
-        return { scenario: 'direct_mention', responsibleEmail: mentionRule.assignee_email }
-    }
+    if (mentionRule) return { scenario: 'direct_mention', responsibleEmail: mentionRule.assignee_email }
 
-    // 2. Specific CS Inbox check (Priority over general team)
     const isToCS = recipients.some(addr => addr.includes('cs@solvit.co.ke') || addr.includes('cs@'))
     if (isToCS) {
-        // Find CS specific rule if exists
         const csRule = dbRules.find(r => r.rule_type === 'team_inbox' && r.rule_value.toLowerCase().includes('cs@'))
-        return { 
-            scenario: 'customer_service_inbox', 
-            responsibleEmail: csRule?.assignee_email || 'jmungasi@solvit.co.ke'
-        }
+        return { scenario: 'customer_service_inbox', responsibleEmail: csRule?.assignee_email || 'jmungasi@solvit.co.ke' }
     }
 
-    // 3. General Team Inbox check
-    const isToTeam = recipients.some(addr =>
-        ['team@', 'cs-team@', 'support@', 'info@'].some(p => addr.includes(p))
-    )
-
+    const isToTeam = recipients.some(addr => ['team@', 'cs-team@', 'support@', 'info@'].some(p => addr.includes(p)))
     if (isToTeam) {
-        // Try DB rules for domain or keyword assignment
         for (const rule of dbRules) {
-            if (rule.rule_type === 'domain' && fromEmail.includes(rule.rule_value.toLowerCase())) {
-                return { scenario: 'team_email', responsibleEmail: rule.assignee_email }
-            }
-            if (rule.rule_type === 'keyword' && (subject.includes(rule.rule_value.toLowerCase()) || body.includes(rule.rule_value.toLowerCase()))) {
-                return { scenario: 'team_email', responsibleEmail: rule.assignee_email }
-            }
+            if (rule.rule_type === 'domain' && fromEmail.includes(rule.rule_value.toLowerCase())) return { scenario: 'team_email', responsibleEmail: rule.assignee_email }
+            if (rule.rule_type === 'keyword' && (subject.includes(rule.rule_value.toLowerCase()) || body.includes(rule.rule_value.toLowerCase()))) return { scenario: 'team_email', responsibleEmail: rule.assignee_email }
         }
-
-        // Fallback to team@
         return { scenario: 'team_email', responsibleEmail: 'team@solvit.co.ke' }
     }
 
-    // Individual inbox
     return { scenario: 'individual_inbox', responsibleEmail: employee.email }
 }
 
-/**
- * Classify email based on rules
- */
 function classifyEmail(email, rules) {
     const subject = email.subject?.toLowerCase() || ''
     const body = email.bodyPreview?.toLowerCase() || ''
     const fromEmail = email.from?.emailAddress?.address?.toLowerCase() || ''
 
-    // Hardcoded system keywords fallback
-    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable', 'notification']
+    // Global priority: undeliverable/notifications (hardcoded safety)
+    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable']
     const systemDomains = ['jira.com', 'atlassian.net', 'tldv.io', 'render.com', 'africastalking.com', 'microsoft.com', 'azure.com', 'github.com']
     
-    if (systemKeywords.some(k => subject.includes(k) || body.includes(k)) || 
-        systemDomains.some(d => fromEmail.includes(d))) {
+    if (systemKeywords.some(k => subject.includes(k) || body.includes(k)) || systemDomains.some(d => fromEmail.includes(d))) {
         return { isClientEmail: false, isSystemGenerated: true, isSolverEmail: false, isInternal: false }
     }
 
