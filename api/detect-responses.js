@@ -137,7 +137,17 @@ export default async function handler(req, res) {
 
             await Promise.all(batch.map(async (trackedEmail) => {
                 try {
-                    const matchingSent = combinedSentByConversation[trackedEmail.conversation_id]
+                    // Matching Logic: Try conversation_id first, then Subject fallback
+                    let matchingSent = combinedSentByConversation[trackedEmail.conversation_id]
+                    
+                    if (!matchingSent && trackedEmail.subject) {
+                        const normalizedSubject = trackedEmail.subject.toLowerCase().replace(/^re:\s*/i, '').trim()
+                        // Find any sent email with a similar subject that was sent AFTER
+                        matchingSent = Object.values(combinedSentByConversation).find(sent => {
+                            const sentSub = (sent.subject || '').toLowerCase().replace(/^re:\s*/i, '').trim()
+                            return sentSub === normalizedSubject && new Date(sent.sentDateTime) > new Date(trackedEmail.received_at)
+                        })
+                    }
 
                     if (!matchingSent) return
 

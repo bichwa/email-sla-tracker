@@ -11,11 +11,35 @@ const isSystemEmail = (email) => {
     const fromEmail = (email.from_email || '').toLowerCase();
     const body = (email.body_preview || '').toLowerCase();
 
-    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable', 'notification', 'daily standup', 'trial is ending', 'maintenance'];
+    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable', 'notification', 'daily standup', 'trial is ending', 'maintenance', 'kickoff', 'standup', 'event', 'invite'];
     const systemDomains = ['jira.com', 'atlassian.net', 'tldv.io', 'render.com', 'africastalking.com', 'microsoft.com', 'azure.com', 'github.com'];
 
     return systemKeywords.some(k => subject.includes(k) || body.includes(k)) ||
         systemDomains.some(d => fromEmail.includes(d));
+}
+
+/**
+ * Shared helper to process email data for both list and metrics
+ */
+const processEmailData = (data, target = 30) => {
+    const now = new Date();
+    return (data || [])
+        .filter(email => !isSystemEmail(email))
+        .map(email => {
+            const receivedAt = new Date(email.received_at);
+
+            // Calculate waiting/response time
+            if (email.has_response) {
+                email.minutes_waiting = email.response_time_minutes || 0;
+            } else {
+                email.minutes_waiting = Math.floor((now - receivedAt) / (1000 * 60));
+            }
+
+            // Calculate real-time SLA status
+            email.sla_breached = email.minutes_waiting > target;
+
+            return email;
+        });
 }
 
 /**
@@ -27,7 +51,7 @@ export const useEmailList = (filters = {}) => {
         queryFn: async () => {
             let query = supabase
                 .from('tracked_emails')
-                .select('*')
+                .select('*') // Includes responded_at
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
                 .order('received_at', { ascending: false })
@@ -35,73 +59,34 @@ export const useEmailList = (filters = {}) => {
             // Apply filters
             if (filters.employeeEmail) {
                 let emailsToFilter = [filters.employeeEmail];
-
-                // jmaina -> Peris Redirection
                 if (filters.employeeEmail === 'podhiambo@solvit.co.ke') {
                     emailsToFilter.push('jmaina@solvit.co.ke');
                 }
-
                 const filterString = emailsToFilter.map(e => `responsible_employee_email.eq.${e},first_responder_email.eq.${e}`).join(',');
                 query = query.or(filterString);
             }
 
-            if (filters.scenario) {
-                query = query.eq('scenario', filters.scenario)
-            }
+            if (filters.scenario) query = query.eq('scenario', filters.scenario)
+            if (filters.hasResponse !== undefined) query = query.eq('has_response', filters.hasResponse)
 
-            if (filters.slaBreached !== undefined) {
-                // If filtering by breach locally later, we should still fetch all candidate emails 
-                // or use the DB column as a hint. But since we do real-time calc, 
-                // we'll fetch more and filter in JS if needed, or stick to DB column for performance.
-                // However, for accuracy, we should check in JS.
-                // query = query.eq('sla_breached', filters.slaBreached)
-            }
+            // Date filtering with format safety (handles DD/MM/YYYY or YYYY-MM-DD)
+            const formatDate = (dateStr) => {
+                if (!dateStr) return null;
+                if (dateStr.includes('/')) return dateStr.split('/').reverse().join('-');
+                return dateStr;
+            };
 
-            if (filters.hasResponse !== undefined) {
-                query = query.eq('has_response', filters.hasResponse)
-            }
+            if (filters.fromDate) query = query.gte('received_at', `${formatDate(filters.fromDate)}T00:00:00`)
+            if (filters.toDate) query = query.lte('received_at', `${formatDate(filters.toDate)}T23:59:59`)
 
-            if (filters.fromDate) {
-                query = query.gte('received_at', `${filters.fromDate}T00:00:00`)
-            }
+            query = query.limit(500)
 
-            if (filters.toDate) {
-                query = query.lte('received_at', `${filters.toDate}T23:59:59`)
-            }
-
-            query = query.limit(300)
-
-            const { data, count, error } = await query.select('*', { count: 'exact' })
-
+            const { data, error } = await query
             if (error) throw error
 
-            const target = 30; // 30m SLA
-            const now = new Date();
+            let processedEmails = processEmailData(data, 30);
 
-            // Post-process: Filter system emails and calculate real-time status
-            let processedEmails = (data || [])
-                .filter(email => !isSystemEmail(email))
-                .map(email => {
-                    const receivedAt = new Date(email.received_at);
-
-                    // Calculate waiting/response time
-                    if (email.has_response) {
-                        email.minutes_waiting = email.response_time_minutes || 0;
-                    } else {
-                        email.minutes_waiting = Math.floor((now - receivedAt) / (1000 * 60));
-                    }
-
-                    // Calculate real-time SLA status
-                    if (email.has_response) {
-                        email.sla_breached = email.minutes_waiting > target;
-                    } else {
-                        email.sla_breached = email.minutes_waiting > target;
-                    }
-
-                    return email;
-                });
-
-            // If user filtered by SLA Status in UI, apply it now
+            // Client-side SLA filtering
             if (filters.slaBreached !== undefined) {
                 processedEmails = processedEmails.filter(e => e.sla_breached === filters.slaBreached);
             }
@@ -121,17 +106,13 @@ export const useSLAMetrics = (filters = {}) => {
     return useQuery({
         queryKey: ['sla-metrics', filters],
         queryFn: async () => {
-            // Fetch records from today to calculate real-time metrics
             let query = supabase
                 .from('tracked_emails')
-                .select('id, received_at, has_response, sla_breached, response_time_minutes, is_system_generated, subject, from_email, body_preview, responsible_employee_email, first_responder_email')
+                .select('*')
                 .eq('is_client_email', true)
                 .eq('is_incoming', true)
                 .order('received_at', { ascending: false })
                 .limit(1000)
-
-            if (filters.fromDate) query = query.gte('received_at', `${filters.fromDate}T00:00:00`)
-            if (filters.toDate) query = query.lte('received_at', `${filters.toDate}T23:59:59`)
 
             if (filters.employeeEmail) {
                 let emailsToFilter = [filters.employeeEmail];
@@ -142,14 +123,19 @@ export const useSLAMetrics = (filters = {}) => {
                 query = query.or(filterString);
             }
 
+            const formatDate = (dateStr) => {
+                if (!dateStr) return null;
+                if (dateStr.includes('/')) return dateStr.split('/').reverse().join('-');
+                return dateStr;
+            };
+
+            if (filters.fromDate) query = query.gte('received_at', `${formatDate(filters.fromDate)}T00:00:00`)
+            if (filters.toDate) query = query.lte('received_at', `${formatDate(filters.toDate)}T23:59:59`)
+
             const { data, error } = await query
             if (error) throw error
 
-            const target = 30; // 30m SLA
-            const now = new Date();
-
-            // Filter out system emails
-            const validEmails = (data || []).filter(email => !isSystemEmail(email));
+            const validEmails = processEmailData(data, 30);
 
             let total = validEmails.length;
             let answered = 0;
@@ -158,27 +144,13 @@ export const useSLAMetrics = (filters = {}) => {
             let respWithTimeCount = 0;
 
             validEmails.forEach(email => {
-                const receivedAt = new Date(email.received_at);
-
                 if (email.has_response) {
                     answered++;
-                    const respTime = email.response_time_minutes || 0;
-                    if (respTime > target) breached++;
-                    totalRespTime += respTime;
+                    totalRespTime += (email.response_time_minutes || 0);
                     respWithTimeCount++;
-                } else {
-                    const waitTime = Math.floor((now - receivedAt) / (1000 * 60));
-                    if (waitTime > target) breached++;
                 }
+                if (email.sla_breached) breached++;
             });
-
-            const avgResponseTime = respWithTimeCount > 0
-                ? Math.round(totalRespTime / respWithTimeCount)
-                : 0;
-
-            const slaCompliance = total > 0
-                ? Math.round(((total - breached) / total) * 100)
-                : 100;
 
             return {
                 totalEmails: total,
@@ -186,8 +158,8 @@ export const useSLAMetrics = (filters = {}) => {
                 unansweredEmails: total - answered,
                 breachedEmails: breached,
                 withinSLA: total - breached,
-                avgResponseTime,
-                slaCompliance,
+                avgResponseTime: respWithTimeCount > 0 ? Math.round(totalRespTime / respWithTimeCount) : 0,
+                slaCompliance: total > 0 ? Math.round(((total - breached) / total) * 100) : 100,
             }
         },
     })
