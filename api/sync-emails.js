@@ -100,12 +100,11 @@ export default async function handler(req, res) {
             try {
                 const yesterday = new Date()
                 yesterday.setDate(yesterday.getDate() - 1)
-
+                const emails = await graphClient
                     .api(`/users/${employee.email}/messages`)
                     .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments,conversationId,internetMessageId')
-                    .filter(`receivedDateTime ge ${yesterday.toISOString()}`)
                     .orderby('receivedDateTime desc')
-                    .top(50) // Increased from 20 to 50
+                    .top(100)
                     .get()
 
                 if (emails.value) {

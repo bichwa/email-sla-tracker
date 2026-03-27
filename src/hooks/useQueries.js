@@ -11,7 +11,7 @@ const isSystemEmail = (email) => {
     const fromEmail = (email.from_email || '').toLowerCase();
     const body = (email.body_preview || '').toLowerCase();
 
-    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable', 'notification', 'daily standup', 'trial is ending', 'maintenance', 'kickoff', 'standup', 'event', 'invite'];
+    const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable'];
     const systemDomains = ['jira.com', 'atlassian.net', 'tldv.io', 'render.com', 'africastalking.com', 'microsoft.com', 'azure.com', 'github.com'];
 
     return systemKeywords.some(k => subject.includes(k) || body.includes(k)) ||
