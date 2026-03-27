@@ -11,6 +11,7 @@ const isSystemEmail = (email) => {
     const fromEmail = (email.from_email || '').toLowerCase();
     const body = (email.body_preview || '').toLowerCase();
 
+    // Relaxed keywords to avoid over-filtering real emails
     const systemKeywords = ['delivery status notification', 'automatic reply', 'out of office', 'undeliverable'];
     const systemDomains = ['jira.com', 'atlassian.net', 'tldv.io', 'render.com', 'africastalking.com', 'microsoft.com', 'azure.com', 'github.com'];
 
@@ -76,8 +77,9 @@ export const useEmailList = (filters = {}) => {
                 return dateStr;
             };
 
-            if (filters.fromDate) query = query.gte('received_at', `${formatDate(filters.fromDate)}T00:00:00`)
-            if (filters.toDate) query = query.lte('received_at', `${formatDate(filters.toDate)}T23:59:59`)
+            // Timezone offset (+03:00) added to ensure local day start/end is respected
+            if (filters.fromDate) query = query.gte('received_at', `${formatDate(filters.fromDate)}T00:00:00+03:00`)
+            if (filters.toDate) query = query.lte('received_at', `${formatDate(filters.toDate)}T23:59:59+03:00`)
 
             query = query.limit(500)
 
@@ -129,8 +131,9 @@ export const useSLAMetrics = (filters = {}) => {
                 return dateStr;
             };
 
-            if (filters.fromDate) query = query.gte('received_at', `${formatDate(filters.fromDate)}T00:00:00`)
-            if (filters.toDate) query = query.lte('received_at', `${formatDate(filters.toDate)}T23:59:59`)
+            // Timezone offset (+03:00) added to ensure local day start/end is respected
+            if (filters.fromDate) query = query.gte('received_at', `${formatDate(filters.fromDate)}T00:00:00+03:00`)
+            if (filters.toDate) query = query.lte('received_at', `${formatDate(filters.toDate)}T23:59:59+03:00`)
 
             const { data, error } = await query
             if (error) throw error
@@ -180,8 +183,8 @@ export const useTeamPerformance = (filters = {}) => {
                 .limit(5000)
                 .order('received_at', { ascending: false })
 
-            if (filters.fromDate) query = query.gte('received_at', `${filters.fromDate}T00:00:00`)
-            if (filters.toDate) query = query.lte('received_at', `${filters.toDate}T23:59:59`)
+            if (filters.fromDate) query = query.gte('received_at', `${filters.fromDate}T00:00:00+03:00`)
+            if (filters.toDate) query = query.lte('received_at', `${filters.toDate}T23:59:59+03:00`)
 
             const { data, error } = await query
             if (error) throw error
