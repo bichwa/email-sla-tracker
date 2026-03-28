@@ -105,11 +105,20 @@ export const FiltersBar = ({ onFilterChange, employees }) => {
                             SLA Status
                         </label>
                         <select
-                            value={filters.slaBreached}
-                            onChange={(e) => handleFilterChange('slaBreached', e.target.value)}
+                            value={filters.slaBreached === '' ? '' : String(filters.slaBreached)}
+                            onChange={(e) => {
+                                const val = e.target.value;
+                                if (val === '') {
+                                    // Special case: Clear status filters
+                                    setFilters({ ...filters, slaBreached: '' });
+                                    onFilterChange({ slaBreached: undefined, hasResponse: undefined });
+                                } else {
+                                    handleFilterChange('slaBreached', val);
+                                }
+                            }}
                             className="input text-sm"
                         >
-                            <option value="">All Status</option>
+                            <option value="">All Status (Both)</option>
                             <option value="false">Within SLA</option>
                             <option value="true">Breached</option>
                         </select>

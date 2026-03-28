@@ -67,7 +67,14 @@ export const Dashboard = () => {
             <MetricsCards metrics={metrics} loading={metricsLoading} onFilterChange={setFilters} />
 
             <FiltersBar
-                onFilterChange={setFilters}
+                onFilterChange={(newFilters) => setFilters(prev => {
+                    // Start fresh if they cleared filters
+                    if (Object.keys(newFilters).length === 0) {
+                        return { hasResponse: false }; // Back to default
+                    }
+                    // Otherwise merge
+                    return { ...prev, ...newFilters };
+                })}
                 employees={employees}
             />
 
