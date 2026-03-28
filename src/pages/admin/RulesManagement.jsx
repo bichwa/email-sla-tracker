@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { useClassificationRules } from '../../hooks/useQueries'
-import { supabase } from '../../lib/supabase'
 import { Plus, Edit, Trash2, Power, PowerOff, Save, X } from 'lucide-react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
@@ -24,49 +23,58 @@ export const RulesManagement = () => {
     // Toggle rule active status
     const toggleMutation = useMutation({
         mutationFn: async ({ id, is_active }) => {
-            const { error } = await supabase
-                .from('email_classification_rules')
-                .update({ is_active })
-                .eq('id', id)
-
-            if (error) throw error
+            const response = await fetch('/api/manage-rules', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, is_active })
+            })
+            if (!response.ok) {
+                const err = await response.json()
+                throw new Error(err.error || 'Failed to update status')
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries(['classification-rules'])
         },
+        onError: (error) => {
+            alert(`Failed to update status: ${error.message}`)
+        }
     })
 
     // Delete rule
     const deleteMutation = useMutation({
         mutationFn: async (id) => {
-            const { error } = await supabase
-                .from('email_classification_rules')
-                .delete()
-                .eq('id', id)
-
-            if (error) throw error
+            const response = await fetch(`/api/manage-rules?id=${id}`, {
+                method: 'DELETE'
+            })
+            if (!response.ok) {
+                const err = await response.json()
+                throw new Error(err.error || 'Failed to delete rule')
+            }
         },
         onSuccess: () => {
             queryClient.invalidateQueries(['classification-rules'])
         },
+        onError: (error) => {
+            alert(`Failed to delete rule: ${error.message}`)
+        }
     })
 
     // Create or update rule
     const saveMutation = useMutation({
         mutationFn: async (ruleData) => {
-            if (editingRule) {
-                const { error } = await supabase
-                    .from('email_classification_rules')
-                    .update(ruleData)
-                    .eq('id', editingRule.id)
+            const method = editingRule ? 'PUT' : 'POST'
+            const body = editingRule ? { ...ruleData, id: editingRule.id } : ruleData
+            
+            const response = await fetch('/api/manage-rules', {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            })
 
-                if (error) throw error
-            } else {
-                const { error } = await supabase
-                    .from('email_classification_rules')
-                    .insert([ruleData])
-
-                if (error) throw error
+            if (!response.ok) {
+                const err = await response.json()
+                throw new Error(err.error || 'Failed to save rule')
             }
         },
         onSuccess: () => {
@@ -77,7 +85,7 @@ export const RulesManagement = () => {
         },
         onError: (error) => {
             console.error('Save error:', error);
-            alert(`Failed to save rule: ${error.message || 'Unknown error'}`);
+            alert(`Failed to save rule: ${error.message}`);
         }
     })
 
@@ -108,7 +116,12 @@ export const RulesManagement = () => {
     }
 
     const handleSave = () => {
-        saveMutation.mutate(formData)
+        // Ensure priority is a valid number
+        const cleanData = {
+            ...formData,
+            priority: typeof formData.priority === 'number' ? formData.priority : 10
+        }
+        saveMutation.mutate(cleanData)
     }
 
     const handleCancel = () => {
