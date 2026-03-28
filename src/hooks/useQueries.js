@@ -250,13 +250,12 @@ export const useClassificationRules = () => {
     return useQuery({
         queryKey: ['classification-rules'],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from('email_classification_rules')
-                .select('*')
-                .order('priority')
-
-            if (error) throw error
-            return data || []
+            const response = await fetch('/api/manage-rules')
+            if (!response.ok) {
+                const err = await response.json()
+                throw new Error(err.error || 'Failed to fetch rules')
+            }
+            return response.json()
         },
     })
 }
