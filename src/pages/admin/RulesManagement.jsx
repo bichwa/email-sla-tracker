@@ -75,6 +75,10 @@ export const RulesManagement = () => {
             setIsAddingNew(false)
             resetForm()
         },
+        onError: (error) => {
+            console.error('Save error:', error);
+            alert(`Failed to save rule: ${error.message || 'Unknown error'}`);
+        }
     })
 
     const resetForm = () => {
@@ -232,11 +236,17 @@ export const RulesManagement = () => {
                             <input
                                 type="number"
                                 value={formData.priority}
-                                onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) })}
+                                onChange={(e) => {
+                                    const val = parseInt(e.target.value);
+                                    setFormData({ ...formData, priority: isNaN(val) ? '' : val })
+                                }}
                                 className="input"
                                 min="1"
-                                placeholder="Lower number = higher priority"
+                                placeholder="1-100"
                             />
+                            <p className="text-[10px] text-gray-500 mt-1 italic">
+                                * Lower numbers run first (e.g., 1 is higher priority than 10)
+                            </p>
                         </div>
 
                         <div>
