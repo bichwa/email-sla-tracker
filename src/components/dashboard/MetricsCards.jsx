@@ -52,7 +52,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
             value: metrics?.breachedEmails || 0,
             icon: AlertTriangle,
             color: 'danger',
-            description: 'Missed 15-minute target',
+            description: 'Missed 30-minute target',
             isClickable: true,
             cursor: 'cursor-pointer hover:bg-red-50'
         },
@@ -65,7 +65,7 @@ export const MetricsCards = ({ metrics, loading, onFilterChange }) => {
         },
         {
             title: 'SLA Compliance',
-            value: `${metrics?.slaCompliance || 100}%`,
+            value: `${metrics?.slaCompliance ?? 100}%`,
             icon: CheckCircle,
             color: 'success',
             description: '% of total emails on time',
