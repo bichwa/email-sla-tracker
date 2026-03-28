@@ -18,14 +18,14 @@ export const DashboardKey = () => {
         },
         {
             title: 'SLA Breaches',
-            description: 'Emails that did not receive a response within our 15-minute target.',
+            description: 'Emails that did not receive a response within our 30-minute target.',
             icon: AlertTriangle,
             color: 'text-red-600',
             bgColor: 'bg-red-50'
         },
         {
             title: 'SLA Compliance',
-            description: 'The overall health percentage of emails managed within the 15-minute SLA.',
+            description: 'The overall health percentage of emails managed within the 30-minute SLA.',
             icon: CheckCircle,
             color: 'text-green-600',
             bgColor: 'bg-green-50'
