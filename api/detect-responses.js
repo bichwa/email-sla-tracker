@@ -1,6 +1,5 @@
 /**
- * Detect responses to emails
- * Checks sent items to see if tracked emails have been responded to
+ * Detect responses to emails (High Performance Bulk Version)
  */
 
 import { createClient } from '@supabase/supabase-js'
@@ -12,7 +11,8 @@ const supabase = createClient(
 )
 
 export default async function handler(req, res) {
-    // Accept both GET (Vercel cron) and POST (manual trigger)
+    const startTime = Date.now();
+    
     if (req.method !== 'POST' && req.method !== 'GET') {
         return res.status(405).json({ error: 'Method not allowed' })
     }
@@ -21,203 +21,134 @@ export default async function handler(req, res) {
         const body = req.body || {}
         let { accessToken } = body
 
-        // FOOLPROOF SECRET FETCHING
-        // Vercel cron sends CRON_SECRET as 'Authorization: Bearer <secret>'
         const authHeader = req.headers['authorization'] || ''
         const cronSecret = req.query.cronSecret || body.cronSecret || req.headers['cronsecret'] || req.headers['x-cron-secret'] || authHeader
 
         const cleanProvided = (cronSecret || '').replace(/^Bearer\s+/i, '').trim()
         const cleanStored = (process.env.CRON_SECRET || '').replace(/^Bearer\s+/i, '').trim()
 
-        // Verification: If cronSecret is provided, try to get a system token
         if (cleanProvided && cleanProvided === cleanStored && cleanStored !== '') {
-            console.log('Valid CRON_SECRET provided. Fetching background token...')
             accessToken = await getBackgroundAccessToken()
         }
 
         if (!accessToken) {
-            return res.status(401).json({
-                success: false,
-                error: 'Unauthorized',
-                message: 'Access token or valid cronSecret is required.'
-            })
+            return res.status(401).json({ success: false, error: 'Unauthorized' })
         }
 
         const graphClient = Client.init({
-            authProvider: (done) => {
-                done(null, accessToken)
-            },
+            authProvider: (done) => done(null, accessToken),
         })
 
-        // Get ALL active, client-facing employees (real mailboxes we can check sent items from)
-        const { data: employees, error: empError } = await supabase
-            .from('employees')
-            .select('email')
-            .eq('is_active', true)
-            .eq('is_client_facing', true)
+        // 1. Fetch needed metadata
+        const [empRes, unansweredRes] = await Promise.all([
+            supabase.from('employees').select('email').eq('is_active', true).eq('is_client_facing', true),
+            supabase.from('tracked_emails')
+                .select('*')
+                .eq('is_incoming', true)
+                .eq('has_response', false)
+                .eq('is_client_email', true)
+                .not('conversation_id', 'is', null)
+                .order('received_at', { ascending: false })
+                .limit(200) // Lowered to ensure we finish in 30s
+        ]);
 
-        if (empError) {
-            console.error('Error fetching employees:', empError)
-            return res.status(500).json({ error: 'Failed to fetch employees' })
+        if (empRes.error) throw empRes.error;
+        const employeeEmails = empRes.data.map(e => e.email);
+        const unansweredEmails = unansweredRes.data || [];
+
+        if (unansweredEmails.length === 0) {
+            return res.status(200).json({ success: true, message: 'No unanswered emails to process' });
         }
 
-        const employeeEmails = employees.map(e => e.email)
-        console.log(`Found ${employeeEmails.length} active employees to check sent items for`)
-
-        // Get unanswered emails - Process 500 per run to clear backlog faster
-        const { data: unansweredEmails, error: fetchError } = await supabase
-            .from('tracked_emails')
-            .select('*')
-            .eq('is_incoming', true)
-            .eq('has_response', false)
-            .eq('is_client_email', true)
-            .not('conversation_id', 'is', null)
-            .order('received_at', { ascending: false })
-            .limit(500)
-
-        if (fetchError) {
-            console.error('Supabase fetch error:', fetchError)
-            return res.status(500).json({ error: 'Failed to fetch emails', details: fetchError.message })
-        }
-
-        console.log(`Processing ${unansweredEmails.length} unanswered emails...`)
-
-        let responsesDetected = 0
-        let errorsCount = 0
-
-        // STEP 1: Fetch sent items from ALL real employee mailboxes in parallel
-        // This is the key fix — instead of only checking the assigned employee's sent items,
-        // we check ALL employees because:
-        //   a) team@solvit.co.ke emails could be answered by ANY team member
-        //   b) Even individually-assigned emails might be answered by a colleague
+        // 2. Fetch Sent Items from ALL mailboxes (Parallel)
         const combinedSentByConversation = {}
+        const threeDaysAgo = new Date();
+        threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+        const dateFilter = threeDaysAgo.toISOString();
 
-        // Process employees in batches of 5 to avoid overloading Graph API
-        const EMP_BATCH_SIZE = 5
-        for (let i = 0; i < employeeEmails.length; i += EMP_BATCH_SIZE) {
-            const batch = employeeEmails.slice(i, i + EMP_BATCH_SIZE)
+        await Promise.all(employeeEmails.map(async (employeeEmail) => {
+            if (Date.now() - startTime > 15000) return; // Safety
 
-            await Promise.all(batch.map(async (employeeEmail) => {
-                try {
-                    const sentEmails = await graphClient
-                        .api(`/users/${employeeEmail}/mailFolders/sentitems/messages`)
-                        .select('id,sentDateTime,conversationId,toRecipients,subject')
-                        .orderby('sentDateTime desc')
-                        .top(100)
-                        .get()
+            try {
+                const sentEmails = await graphClient
+                    .api(`/users/${employeeEmail}/messages`) // Use all messages to be safe
+                    .filter(`receivedDateTime ge ${dateFilter} and from/emailAddress/address eq '${employeeEmail}'`)
+                    .select('id,receivedDateTime,conversationId,toRecipients,subject')
+                    .orderby('receivedDateTime desc')
+                    .top(100)
+                    .get()
 
-                    if (!sentEmails.value || sentEmails.value.length === 0) return
-
+                if (sentEmails.value) {
                     for (const sent of sentEmails.value) {
-                        if (!sent.conversationId) continue
-
-                        // Keep the EARLIEST response per conversation across all employees
-                        const existing = combinedSentByConversation[sent.conversationId]
-                        if (!existing || new Date(sent.sentDateTime) < new Date(existing.sentDateTime)) {
+                        if (!sent.conversationId) continue;
+                        const existing = combinedSentByConversation[sent.conversationId];
+                        if (!existing || new Date(sent.receivedDateTime) < new Date(existing.receivedDateTime)) {
                             combinedSentByConversation[sent.conversationId] = {
                                 ...sent,
                                 responderEmail: employeeEmail
-                            }
+                            };
                         }
                     }
-                } catch (error) {
-                    // Don't count as error — some mailboxes may not be accessible
-                    console.warn(`Could not fetch sent items for ${employeeEmail}: ${error.message || error}`)
                 }
-            }))
-        }
+            } catch (error) {
+                console.warn(`Could not check for ${employeeEmail}:`, error.message);
+            }
+        }));
 
-        console.log(`Built combined sent map with ${Object.keys(combinedSentByConversation).length} unique conversations`)
+        // 3. Match and Prepare Updates
+        const updates = []
+        for (const trackedEmail of unansweredEmails) {
+            let matchingSent = combinedSentByConversation[trackedEmail.conversation_id]
+            
+            if (!matchingSent && trackedEmail.subject) {
+                const normalizedSubject = trackedEmail.subject.toLowerCase().replace(/^re:\s*/i, '').trim()
+                matchingSent = Object.values(combinedSentByConversation).find(sent => {
+                    const sentSub = (sent.subject || '').toLowerCase().replace(/^re:\s*/i, '').trim()
+                    return sentSub === normalizedSubject && new Date(sent.receivedDateTime) > new Date(trackedEmail.received_at)
+                })
+            }
 
-        // STEP 2: Match ALL unanswered emails against the combined sent items map
-        // Process in batches to avoid too many concurrent DB updates
-        const DB_BATCH_SIZE = 20
-        for (let i = 0; i < unansweredEmails.length; i += DB_BATCH_SIZE) {
-            const batch = unansweredEmails.slice(i, i + DB_BATCH_SIZE)
-
-            await Promise.all(batch.map(async (trackedEmail) => {
-                try {
-                    // Matching Logic: Try conversation_id first, then Subject fallback
-                    let matchingSent = combinedSentByConversation[trackedEmail.conversation_id]
-                    
-                    if (!matchingSent && trackedEmail.subject) {
-                        const normalizedSubject = trackedEmail.subject.toLowerCase().replace(/^re:\s*/i, '').trim()
-                        // Find any sent email with a similar subject that was sent AFTER
-                        matchingSent = Object.values(combinedSentByConversation).find(sent => {
-                            const sentSub = (sent.subject || '').toLowerCase().replace(/^re:\s*/i, '').trim()
-                            return sentSub === normalizedSubject && new Date(sent.sentDateTime) > new Date(trackedEmail.received_at)
-                        })
-                    }
-
-                    if (!matchingSent) return
-
-                    // Verify the sent email was AFTER the received email
-                    const sentDate = new Date(matchingSent.sentDateTime)
-                    const receivedDate = new Date(trackedEmail.received_at)
-
-                    if (sentDate <= receivedDate) return
-
+            if (matchingSent) {
+                const sentDate = new Date(matchingSent.receivedDateTime)
+                const receivedDate = new Date(trackedEmail.received_at)
+                if (sentDate > receivedDate) {
                     const responseTime = Math.floor((sentDate - receivedDate) / (1000 * 60))
-
-                    const { error: updateError } = await supabase
-                        .from('tracked_emails')
-                        .update({
-                            has_response: true,
-                            first_response_at: matchingSent.sentDateTime,
-                            first_responder_email: matchingSent.responderEmail,
-                            response_time_minutes: responseTime,
-                            responded_at: matchingSent.sentDateTime,
-                        })
-                        .eq('id', trackedEmail.id)
-
-                    if (!updateError) {
-                        responsesDetected++
-                    } else {
-                        console.error(`Update error for ${trackedEmail.id}:`, updateError)
-                        errorsCount++
-                    }
-                } catch (error) {
-                    errorsCount++
-                    console.error(`Error processing email ${trackedEmail.id}:`, error.message || error)
+                    updates.push({
+                        ...trackedEmail, // Keep original fields for upsert
+                        has_response: true,
+                        responded_at: matchingSent.receivedDateTime,
+                        first_responder_email: matchingSent.responderEmail,
+                        response_time_minutes: responseTime,
+                        is_processed: true
+                    })
                 }
-            }))
+            }
         }
 
-        console.log(`Done. Responses detected: ${responsesDetected}, Errors: ${errorsCount}`)
+        // 4. Bulk Upsert (Fastest way to update multiple records by ID)
+        let responsesDetected = 0
+        if (updates.length > 0) {
+            const { error: upsertError } = await supabase.from('tracked_emails').upsert(updates);
+            if (upsertError) throw upsertError;
+            responsesDetected = updates.length;
+        }
 
         return res.status(200).json({
             success: true,
             responsesDetected,
-            processed: unansweredEmails.length,
-            conversationsChecked: Object.keys(combinedSentByConversation).length,
-            employeesChecked: employeeEmails.length,
-            errors: errorsCount,
-            mode: cronSecret ? 'background' : 'interactive'
+            duration: `${Date.now() - startTime}ms`
         })
+
     } catch (error) {
-        console.error('Response detection error:', error)
-        return res.status(500).json({
-            success: false,
-            error: 'Response detection failed',
-            message: error.message,
-            stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-            hint: 'Check Vercel logs and environment variables (MICROSOFT_CLIENT_SECRET, CRON_SECRET)'
-        })
+        console.error('Detection error:', error)
+        return res.status(500).json({ success: false, error: error.message })
     }
 }
 
-/**
- * Fetch a background access token using Microsoft Client Credentials flow
- */
 async function getBackgroundAccessToken() {
     const tenantId = process.env.VITE_MICROSOFT_TENANT_ID
     const clientId = process.env.VITE_MICROSOFT_CLIENT_ID
     const clientSecret = process.env.MICROSOFT_CLIENT_SECRET
-
-    if (!tenantId || !clientId || !clientSecret) {
-        throw new Error('Missing Microsoft environment variables for background sync')
-    }
-
     const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`
     const bodyParams = new URLSearchParams({
         client_id: clientId,
@@ -225,28 +156,7 @@ async function getBackgroundAccessToken() {
         client_secret: clientSecret,
         grant_type: 'client_credentials',
     })
-
-    try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: bodyParams.toString(),
-        })
-
-        const text = await response.text()
-        let data
-        try {
-            data = JSON.parse(text)
-        } catch (e) {
-            data = { error: 'invalid_json', error_description: text }
-        }
-
-        if (!response.ok) {
-            throw new Error(`Microsoft Auth Error (${response.status}): ${data.error_description || data.error || text}`)
-        }
-
-        return data.access_token
-    } catch (error) {
-        throw new Error(`Failed to contact Microsoft Auth: ${error.message}`)
-    }
+    const response = await fetch(url, { method: 'POST', body: bodyParams })
+    const data = await response.json()
+    return data.access_token
 }

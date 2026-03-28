@@ -69,8 +69,13 @@ export default async function handler(req, res) {
             if (Date.now() - startTime > 15000) return; 
 
             try {
+                const threeDaysAgo = new Date();
+                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+                const dateFilter = threeDaysAgo.toISOString();
+
                 const emails = await graphClient
-                    .api(`/users/${employee.email}/mailFolders/inbox/messages`)
+                    .api(`/users/${employee.email}/messages`)
+                    .filter(`receivedDateTime ge ${dateFilter}`)
                     .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,hasAttachments,conversationId,internetMessageId')
                     .orderby('receivedDateTime desc')
                     .top(100)

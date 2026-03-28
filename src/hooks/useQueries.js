@@ -200,16 +200,22 @@ export const useTeamPerformance = (filters = {}) => {
                 const responderName = responder.split('@')[0]
 
                 if (!stats[respName]) {
-                    stats[respName] = { name: respName, total_received: 0, total_responded: 0 }
+                    stats[respName] = { name: respName, total_received: 0, total_responded: 0, unanswered: 0 }
                 }
                 stats[respName].total_received++
 
                 if (email.has_response) {
                     if (!stats[responderName]) {
-                        stats[responderName] = { name: responderName, total_received: 0, total_responded: 0 }
+                        stats[responderName] = { name: responderName, total_received: 0, total_responded: 0, unanswered: 0 }
                     }
                     stats[responderName].total_responded++
                 }
+
+                // Update unanswered counts
+                Object.keys(stats).forEach(key => {
+                    const s = stats[key];
+                    s.unanswered = s.total_received - s.total_responded;
+                });
             });
 
             return Object.values(stats)

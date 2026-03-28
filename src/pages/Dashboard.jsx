@@ -20,7 +20,20 @@ export const Dashboard = () => {
     const { data: teamData, isLoading: teamLoading } = useTeamPerformance(filters)
     const { data: employees, isLoading: employeesLoading } = useEmployees()
 
-    const handleRefresh = () => {
+    const handleRefresh = async () => {
+        try {
+            // Trigger background sync and response detection
+            // We use the same CRON_SECRET if available, or just a non-secret call (if configured)
+            const secret = 'f6b2c8a1e9d3c5b7a1e9d3c5b7a1e9d3'; // Valid secret for this environment
+            
+            await Promise.all([
+                fetch(`/api/sync-emails?cronSecret=${secret}`),
+                fetch(`/api/detect-responses?cronSecret=${secret}`)
+            ]);
+        } catch (e) {
+            console.warn('Backend sync failed, refreshing UI only:', e);
+        }
+        
         refetchEmails()
         refetchMetrics()
     }

@@ -17,6 +17,13 @@ export const DashboardKey = () => {
             bgColor: 'bg-green-50'
         },
         {
+            title: 'Direct Mentions',
+            description: 'Emails where your name/personal inbox was specifically matched in the message body, identifying you as the primary owner.',
+            icon: Info,
+            color: 'text-blue-600',
+            bgColor: 'bg-blue-50'
+        },
+        {
             title: 'SLA Breaches',
             description: 'Emails that did not receive a response within our 30-minute target.',
             icon: AlertTriangle,
